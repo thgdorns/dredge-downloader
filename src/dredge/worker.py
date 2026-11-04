@@ -34,7 +34,7 @@ _SKIP_LINE = re.compile(r"(?m)^#\s+(.+?)\s*$")
 # Conditions an engine retries forever instead of failing. megatools sleeps for
 # minutes per chunk on a MEGA "509 over quota", so the lane would stay busy
 # until the quota resets; kill it and let the URL go to fail.txt instead.
-_QUOTA_STOP = r"(?i)(?:509|over ?quota|transfer quota|quota exceeded)"
+_QUOTA_STOP = r"(?i)(?:server returned 509|over ?quota|transfer quota|quota exceeded)"
 
 
 @dataclass(frozen=True)

@@ -74,6 +74,11 @@ class Paths:
         return self.root / "logs"
 
     @property
+    def lanes_pref(self) -> Path:
+        """Last lane count chosen in the menu, read at the next start."""
+        return self.state / "lanes.txt"
+
+    @property
     def tools(self) -> Path:
         return self.root / "tools"
 
@@ -334,9 +339,21 @@ class Settings:
         if default_name:
             values["default_dest"] = default_name
 
+        saved = _read_lanes(paths)
+        if saved is not None:
+            values["max_downloads"] = saved
         values.update({k: v for k, v in overrides.items() if v is not None})
 
         return cls(root=root, **values)  # type: ignore[arg-type]
+
+
+def _read_lanes(paths: Paths) -> int | None:
+    """The lane count last saved by the menu, if it is still valid."""
+    try:
+        value = int(paths.lanes_pref.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+    return value if 1 <= value <= 16 else None
 
 
 def _read_conf(path: Path) -> tuple[dict[str, object], dict[str, dict[str, str]]]:

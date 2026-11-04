@@ -102,7 +102,7 @@ def test_strict_mode_option_toggles(tmp_path, monkeypatch):
 
 
 def test_lane_count_option_asks_for_a_number(tmp_path, monkeypatch):
-    _, runtime, knowledge = setup(tmp_path)
+    paths, runtime, knowledge = setup(tmp_path)
     answers = iter(["6", "7"])
     monkeypatch.setattr(tui.menu, "select", lambda *a, **k: next(answers, None))
     monkeypatch.setattr(tui.menu, "prompt_line", lambda prompt: next(answers, ""))
@@ -110,6 +110,7 @@ def test_lane_count_option_asks_for_a_number(tmp_path, monkeypatch):
     tui.show_checks_menu(runtime, knowledge)
 
     assert runtime.max_downloads == 7
+    assert (paths.state / "lanes.txt").read_text(encoding="utf-8") == "7"
 
 
 def test_retry_skipped_moves_skip_txt_into_the_queue(tmp_path):

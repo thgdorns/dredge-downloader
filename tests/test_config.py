@@ -3,6 +3,18 @@ from pathlib import Path
 from dredge.config import Paths, Settings, write_gallery_runtime
 
 
+def test_a_saved_lane_count_is_used_on_the_next_start(tmp_path):
+    paths = Paths(tmp_path)
+    paths.ensure()
+    paths.lanes_pref.write_text("7", encoding="utf-8")
+
+    assert Settings.load(paths).max_downloads == 7
+    assert Settings.load(paths, max_downloads=3).max_downloads == 3
+
+    paths.lanes_pref.write_text("99", encoding="utf-8")
+    assert Settings.load(paths).max_downloads == 4
+
+
 def test_defaults_match_the_legacy_script(tmp_path):
     settings = Settings.load(Paths(tmp_path))
     assert settings.max_downloads == 4

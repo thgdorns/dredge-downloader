@@ -12,8 +12,17 @@ from pathlib import Path
 
 from . import records
 from .archive import load_sets
-from .config import Runtime
+from .config import Paths, Runtime
 from .urls import Knowledge
+
+
+def save_lanes(paths: Paths, value: int) -> None:
+    """Remember the menu's lane count for the next start."""
+    try:
+        paths.state.mkdir(parents=True, exist_ok=True)
+        paths.lanes_pref.write_text(str(value), encoding="utf-8")
+    except OSError:
+        pass
 
 
 def archive_signature(path: str | Path) -> str:

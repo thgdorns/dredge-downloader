@@ -92,7 +92,8 @@ def show_checks_menu(
                     value = 0
                 if 1 <= value <= 16:
                     runtime.max_downloads = value
-                    _say(f"lanes set to {value} - the next free slot uses it.", "green")
+                    state.save_lanes(runtime.paths, value)
+                    _say(f"lanes set to {value} - saved; the next free slot uses it.", "green")
                 else:
                     _say("lanes must be a number from 1 to 16.", "yellow")
         elif choice == "7":

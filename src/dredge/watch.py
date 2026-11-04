@@ -107,9 +107,28 @@ class Finding:
     evidence: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class Report:
+    """An upstream issue we filed; tracked for visibility, not for action."""
+
+    id: str
+    url: str
+    title: str = ""
+
+
+def _read(path: str | Path) -> dict:
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
 def load_registry(path: str | Path) -> list[Entry]:
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
-    return [Entry.from_dict(raw) for raw in data["entries"]]
+    return [Entry.from_dict(raw) for raw in _read(path)["entries"]]
+
+
+def load_reports(path: str | Path) -> list[Report]:
+    return [
+        Report(id=str(raw["id"]), url=str(raw["url"]), title=str(raw.get("title", "")))
+        for raw in _read(path).get("reports", ())
+    ]
 
 
 # -- default I/O -------------------------------------------------------------
@@ -203,6 +222,18 @@ def check_issue(check: Check, fetcher: Fetcher) -> tuple[str, str]:
     return KEEP, f"{check.url} is still {state or 'open'}"
 
 
+def report_state(report: Report, offline: bool, fetcher: Fetcher = fetch_json) -> str:
+    """GitHub state of an upstream report, or ``?`` when it cannot be read."""
+    if offline:
+        return "?"
+    match = _ISSUE_RE.search(report.url)
+    if not match:
+        return "?"
+    owner, repo, number = match.groups()
+    data = fetcher(f"https://api.github.com/repos/{owner}/{repo}/issues/{number}")
+    return str(data.get("state", "?")) if data else "?"
+
+
 def check_manual(check: Check, today: date) -> tuple[str, str]:
     if not check.last_verified:
         return DUE, "no verification date recorded"
@@ -270,7 +301,10 @@ def engine_versions(
 
 
 def render_markdown(
-    findings: Iterable[Finding], versions: dict[str, dict[str, str]], today: date
+    findings: Iterable[Finding],
+    versions: dict[str, dict[str, str]],
+    today: date,
+    reports: Iterable[tuple[str, Report]] = (),
 ) -> str:
     findings = sorted(findings, key=lambda f: (_ORDER[f.verdict], f.entry.id))
     action = [f for f in findings if f.verdict in (RETIRE, DUE)]
@@ -306,6 +340,11 @@ def render_markdown(
                 "- action: delete the workaround and its registry entry, "
                 "then run the tests"
             )
+    if reports:
+        lines += ["", "## Upstream reports", "", "| state | report |", "| --- | --- |"]
+        for state, report in reports:
+            label = report.title or report.id
+            lines.append(f"| {state} | [{report.id}]({report.url}) - {label} |")
     return "\n".join(lines) + "\n"
 
 
@@ -325,6 +364,7 @@ def main(argv: list[str] | None = None) -> int:
     registry = Path(args.registry) if args.registry else Path(__file__).with_name("workarounds.json")
     try:
         entries = load_registry(registry)
+        reports = load_reports(registry)
     except (OSError, ValueError, KeyError) as exc:
         print(f"engine-watch: cannot read {registry}: {exc}", file=sys.stderr)
         return 2
@@ -335,6 +375,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     findings = [evaluate(entry, today=today, offline=args.offline) for entry in entries]
     versions = engine_versions(offline=args.offline)
+    report_states = [(report_state(report, args.offline), report) for report in reports]
 
     if args.json:
         print(json.dumps(
@@ -350,11 +391,15 @@ def main(argv: list[str] | None = None) -> int:
                     }
                     for f in findings
                 ],
+                "reports": [
+                    {"id": report.id, "state": state, "url": report.url}
+                    for state, report in report_states
+                ],
             },
             indent=2,
         ))
     else:
-        print(render_markdown(findings, versions, today), end="")
+        print(render_markdown(findings, versions, today, report_states), end="")
 
     return 1 if any(f.verdict in (RETIRE, DUE) for f in findings) else 0
 

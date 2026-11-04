@@ -71,6 +71,14 @@ Rules of thumb:
 - when an entry retires, delete the workaround **and** its `where` references,
   then update the docs that mention it.
 
+## Upstream reports
+
+`reports` in the registry lists the issues we filed. They are informational: the
+weekly report shows open/closed for each, and a workaround whose `issue` closes
+flips to `RETIRE` on its own. Reports without a workaround behind them (the
+header-only HTML detection, the aria2c and cookie-size docs notes) are listed so
+they do not get forgotten.
+
 ## Scheduled runs
 
 `docs/engine-watch.workflow.yml` is the GitHub Actions workflow. Every Monday

@@ -16,7 +16,11 @@
         {
           "kind": "help_flag",
           "engine": "gallery-dl",
-          "flags": ["--list", "--flat", "--items-only"]
+          "flags": [
+            "--list",
+            "--flat",
+            "--items-only"
+          ]
         },
         {
           "kind": "issue",
@@ -104,6 +108,38 @@
           "last_verified": "2026-11-04"
         }
       ]
+    }
+  ],
+  "reports": [
+    {
+      "id": "gallery-dl#9859",
+      "url": "https://github.com/mikf/gallery-dl/issues/9859",
+      "title": "flat listing mode"
+    },
+    {
+      "id": "gallery-dl#9860",
+      "url": "https://github.com/mikf/gallery-dl/issues/9860",
+      "title": "HTML detected only by Content-Type"
+    },
+    {
+      "id": "gallery-dl#9861",
+      "url": "https://github.com/mikf/gallery-dl/issues/9861",
+      "title": "ecchi.iwara.tv unsupported"
+    },
+    {
+      "id": "yt-dlp#17995",
+      "url": "https://github.com/yt-dlp/yt-dlp/issues/17995",
+      "title": "locale subdomains -> generic"
+    },
+    {
+      "id": "yt-dlp#17996",
+      "url": "https://github.com/yt-dlp/yt-dlp/issues/17996",
+      "title": "aria2c on DASH fragments (docs)"
+    },
+    {
+      "id": "yt-dlp#17997",
+      "url": "https://github.com/yt-dlp/yt-dlp/issues/17997",
+      "title": "cookie jar size / 413 (docs)"
     }
   ]
 }

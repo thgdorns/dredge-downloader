@@ -160,3 +160,25 @@ def test_offline_issue_check_is_unknown():
     assert finding.verdict == watch.UNKNOWN
     assert finding.evidence == ["issue: offline"]
 
+
+def test_reports_are_loaded_from_the_shipped_registry():
+    path = Path(watch.__file__).with_name("workarounds.json")
+    reports = watch.load_reports(path)
+    assert len(reports) == 6
+    assert all(report.url.startswith("https://github.com/") for report in reports)
+
+
+def test_report_state_is_unknown_offline_and_read_online():
+    report = watch.Report("yt-dlp#1", "https://github.com/o/r/issues/1")
+    assert watch.report_state(report, offline=True) == "?"
+    assert watch.report_state(
+        report, offline=False, fetcher=lambda url: {"state": "closed"}
+    ) == "closed"
+
+
+def test_report_table_is_rendered():
+    report = watch.Report("yt-dlp#1", "https://github.com/o/r/issues/1", "a report")
+    text = watch.render_markdown([], {}, TODAY, [("open", report)])
+    assert "## Upstream reports" in text
+    assert "| open | [yt-dlp#1](https://github.com/o/r/issues/1) - a report |" in text
+

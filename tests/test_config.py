@@ -15,16 +15,17 @@ def test_defaults_match_the_legacy_script(tmp_path):
 
 
 def test_conf_file_overrides_defaults(tmp_path):
+    absolute = Path(tmp_path.anchor) / "porn"
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "dredge.conf").write_text(
         "# machine-specific values\nmax-downloads = 7\ntpl_porn = %(id)s.%(ext)s\n"
-        "dest_porn = G:\\porn\nunknown = ignored\n",
+        f"dest_porn = {absolute}\nunknown = ignored\n",
         encoding="utf-8",
     )
     settings = Settings.load(Paths(tmp_path))
     assert settings.max_downloads == 7
     assert settings.tpl_porn == "%(id)s.%(ext)s"
-    assert settings.dest_porn == Path("G:/porn")
+    assert settings.dest_porn == absolute
 
 
 def test_command_line_overrides_the_file(tmp_path):

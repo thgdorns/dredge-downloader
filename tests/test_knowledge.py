@@ -79,3 +79,13 @@ def test_rule_lookup_matches_subdomains_and_also_hosts():
     assert knowledge.rule("https://mirror.example/x").host == "example.com"
     # the most specific rule wins
     assert knowledge.rule("https://ecchi.example.com/x").host == "ecchi.example.com"
+
+
+def test_dl_url_applies_a_site_rewrite():
+    rule = parse_rule(
+        r"ecchi.example rewrite=^https?://ecchi\.example/videos/(.*)$=>https://www.example/video/\1"
+    )
+    knowledge = build({"ecchi.example": rule})
+    assert knowledge.dl_url("https://ecchi.example/videos/abc") == (
+        "https://www.example/video/abc"
+    )

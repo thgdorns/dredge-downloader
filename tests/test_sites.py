@@ -26,3 +26,13 @@ def test_most_specific_rule_wins():
     }
     assert find_rule(rules, "www.ecchi.iwara.tv").engine == "gdl"
     assert find_rule(rules, "www.iwara.tv").engine == ""
+
+
+def test_rewrite_key_is_kept_verbatim():
+    rule = parse_rule(
+        r"ecchi.example rewrite=^https?://ecchi\.example/videos/(.*)$=>https://www.example/video/\1"
+    )
+    assert rule is not None
+    assert rule.rewrite == (
+        r"^https?://ecchi\.example/videos/(.*)$=>https://www.example/video/\1"
+    )

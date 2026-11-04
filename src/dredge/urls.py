@@ -177,7 +177,7 @@ def seen_id(url: str, rule_id: str = "") -> str:
 
 
 def dl_url(url: str, *, strip: re.Pattern[str] | None = None,
-           mirrors: MirrorTable | None = None) -> str:
+           mirrors: MirrorTable | None = None, rewrite: str = "") -> str:
     """The URL actually handed to the engines.
 
     Same tracking-parameter idea as :func:`canon`, but the URL keeps its original
@@ -187,6 +187,12 @@ def dl_url(url: str, *, strip: re.Pattern[str] | None = None,
     if not url:
         return ""
     u = url
+    if rewrite and "=>" in rewrite:
+        pattern, _, replacement = rewrite.partition("=>")
+        try:
+            u = re.sub(pattern, replacement, u, count=1)
+        except re.error:
+            pass
     hs = u.find("://")
     if hs >= 0 and mirrors:
         after = u[hs + 3:]
@@ -314,7 +320,11 @@ class Knowledge:
         return f"id:{rule.key or rule.host}:{value}" if value else ""
 
     def dl_url(self, url: str) -> str:
-        return dl_url(url, strip=self.dlstrip, mirrors=self.mirrors)
+        rule = self.rule(url)
+        return dl_url(
+            url, strip=self.dlstrip, mirrors=self.mirrors,
+            rewrite=rule.rewrite if rule else "",
+        )
 
     def playlist(self, url: str) -> Playlist | None:
         """A creator/user page: one URL that expands into many posts."""

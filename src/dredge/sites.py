@@ -19,7 +19,7 @@ _LISTS = ("also", "probe", "cookiedrop")
 # Values kept verbatim (case matters: gdl= options and URL templates).
 _SCALARS = (
     "id", "tpl", "folder", "engine", "postid", "posturl", "itemurl", "playlist",
-    "strip", "dlstrip", "keepfrag", "list", "key", "dest",
+    "strip", "dlstrip", "keepfrag", "list", "key", "dest", "rewrite",
 )
 
 
@@ -44,6 +44,7 @@ class SiteRule:
     folder: str = ""
     engine: str = ""
     dest: str = ""                # named destination for this host (dredge.conf)
+    rewrite: str = ""             # REGEX=>URL applied to the URL before the engines
     cookiedrop: tuple[str, ...] = ()
     strip: str = ""
     dlstrip: str = ""

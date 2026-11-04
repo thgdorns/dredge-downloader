@@ -115,13 +115,13 @@ def test_a_dead_post_is_offline_not_failed(tmp_path, monkeypatch):
     assert verdict == "OFFLINE"
 
 
-def test_a_private_video_is_offline_not_failed(tmp_path, monkeypatch):
+def test_a_private_video_is_failed_not_offline(tmp_path, monkeypatch):
     text = "ERROR: [iwara] abc: Private video. Login if you have permissions to watch."
     verdict, _ = run(tmp_path, monkeypatch, {
         "gdl": {"rc": 1, "text": text},
         "yt": {"rc": 1, "text": text},
     })
-    assert verdict == "OFFLINE"
+    assert verdict == "FAILED"
 
 
 def test_a_maintenance_page_is_failed_not_offline(tmp_path, monkeypatch):

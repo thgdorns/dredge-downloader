@@ -159,7 +159,7 @@ example.com   keep=all min=0 id=[0-9]{6,} native list=^/(?:profile/[^/]+|videos)
 
 `keep=`, `min=`, `id=`, `also=`, `serial`, `native`, `probe=`, `gdl=`, `key=`,
 `playlist=`, `postid=`, `posturl=`, `itemurl=`, `tpl=`, `folder=`, `cookiedrop=`,
-`engine=`, `list=`, `dest=`. The example file documents each one.
+`engine=`, `list=`, `dest=`, `rewrite=`. The example file documents each one.
 
 `config/dredge.conf` holds the machine-specific values (destinations, fallback
 drives, templates, tool folders). See

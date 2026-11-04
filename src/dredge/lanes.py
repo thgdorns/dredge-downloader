@@ -31,7 +31,7 @@ class LaneBoard:
         self._live = Live(
             self.render(),
             console=self.console,
-            refresh_per_second=8,
+            auto_refresh=False,
             transient=True,
             redirect_stdout=True,
         )

@@ -53,7 +53,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--idle-seconds", type=int, default=None, metavar="N",
                         help="how often to look for new links while idle (default 3)")
     parser.add_argument("--progress-every", type=int, default=None, metavar="N",
-                        help="seconds between lane status lines (0 = off, default 15)")
+                        help="seconds between lane status lines when output is not a terminal "
+                             "(0 = off, default 15)")
     parser.add_argument("--no-capture", action="store_true", help="do not watch the clipboard")
     parser.add_argument("--no-update", action="store_true", help="skip the engine self-update")
     parser.add_argument("--no-cookies", action="store_true", help="skip the cookie refresh")

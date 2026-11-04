@@ -14,7 +14,7 @@ def knowledge(rule: SiteRule | None = None) -> Knowledge:
 
 
 def make_runner(behaviour: dict[str, dict]):
-    """Fake engine call: writes the "downloaded" file and the manifest."""
+    """Fake engine call: writes the "downloaded" files and the manifest."""
 
     def fake(args, *, cwd=None, sink=None, timeout=None):
         engine = "gdl" if Path(str(args[0])).stem.lower() in ("gdl", "gallery-dl") else "yt"
@@ -25,16 +25,23 @@ def make_runner(behaviour: dict[str, dict]):
                 dest = Path(args[args.index(flag) + 1])
                 break
         manifest = None
-        for flag in ("--Print-to-file", "--print-to-file"):
-            if flag in args:
-                manifest = Path(args[args.index(flag) + 2])
-        if spec.get("file") and dest:
+        for index, arg in enumerate(args):
+            if arg in ("--Print-to-file", "--print-to-file") and index + 2 < len(args):
+                template = str(args[index + 1])
+                if "_path" in template or "filepath" in template:
+                    manifest = Path(args[index + 2])
+                    break
+        names = spec.get("files") or ([spec["file"]] if spec.get("file") else [])
+        saved: list[str] = []
+        if dest:
             dest.mkdir(parents=True, exist_ok=True)
-            saved = dest / spec["file"]
-            saved.write_bytes(b"x" * spec.get("size", 200_000))
-            if manifest:
-                manifest.parent.mkdir(parents=True, exist_ok=True)
-                manifest.write_text(str(saved), encoding="utf-8")
+            for name in names:
+                path = dest / name
+                path.write_bytes(b"x" * spec.get("size", 200_000))
+                saved.append(str(path))
+        if manifest and saved:
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text("\n".join(saved), encoding="utf-8")
         text = spec.get("text", "")
         if sink and text:
             for line in text.splitlines():
@@ -159,3 +166,40 @@ def test_drop_gallery_entries_removes_junk_and_post_keys(tmp_path):
     assert dropped == 1
     remaining = {row[0] for row in sqlite3.connect(db).execute("select entry from archive")}
     assert remaining == {"directlinkhttps://x/a.mp4", "kemono_user_123_4", "other"}
+
+
+def test_a_creator_page_is_one_row_per_post(tmp_path, monkeypatch):
+    rule = parse_rule(
+        "example.com playlist=user postid=^(\\d+)_ "
+        "posturl=https://{host}/{service}/user/{user}/post/{id}"
+    )
+    verdict, root = run(
+        tmp_path, monkeypatch,
+        {"gdl": {"rc": 0, "files": ["111_A.jpg", "111_B.jpg", "222_C.jpg"]}},
+        rule=rule,
+        url="https://example.com/patreon/user/someone",
+    )
+
+    rows = [row for row in (root / "lane1.archive").read_text(encoding="utf-8").splitlines()
+            if row]
+    assert verdict == "OK|gallery-dl"
+    assert len(rows) == 2
+    first, second = (row.split("\t") for row in rows)
+    assert first[1].endswith("/post/111")
+    assert first[2] == "111_A.jpg;111_B.jpg"
+    assert second[1].endswith("/post/222")
+    assert second[2] == "222_C.jpg"
+    assert b"\r\r\n" not in (root / "lane1.archive").read_bytes()
+
+
+def test_keep_rule_keeps_only_the_first_file(tmp_path, monkeypatch):
+    rule = parse_rule("example.com keep=1")
+    verdict, root = run(
+        tmp_path, monkeypatch,
+        {"gdl": {"rc": 0, "file": "first.jpg"}},
+        rule=rule,
+    )
+
+    assert verdict == "OK|gallery-dl"
+    row = (root / "lane1.archive").read_text(encoding="utf-8").strip()
+    assert row.split("\t")[2] == "first.jpg"

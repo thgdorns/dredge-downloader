@@ -694,7 +694,9 @@ class Worker:
         if lines:
             try:
                 Path(archive).write_text(
-                    "".join(line + "\r\n" for line in lines), encoding="utf-8"
+                    "".join(line + "\r\n" for line in lines),
+                    encoding="utf-8",
+                    newline="",
                 )
             except OSError:
                 pass

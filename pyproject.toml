@@ -21,6 +21,7 @@ dev = ["pytest>=8", "ruff>=0.6"]
 [project.scripts]
 dredge = "dredge.cli:main"
 dredge-watch = "dredge.watch:main"
+dredge-report = "dredge.report:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -1,0 +1,77 @@
+# Weekly audit of the workarounds against the current engines.
+#
+# Copy this file to .github/workflows/engine-watch.yml once the login has the
+# `workflow` scope (gh auth refresh -h github.com -s workflow). It is kept in
+# docs/ because a push containing .github/workflows/ is rejected otherwise.
+#
+# Behaviour: one open issue holds the current report (its body is replaced each
+# week, which does not notify anyone). A comment is added only when the list of
+# items needing action changes, so an unfixed RETIRE does not spam.
+name: engine-watch
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"      # Mondays, 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install the package and the current engines
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -m pip install --upgrade yt-dlp gallery-dl
+      - name: Audit
+        run: |
+          set +e
+          python -m dredge.watch > report.md
+          echo "code=$?" >> "$GITHUB_ENV"
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Update the report issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          title="engine-watch: current report"
+          find_issue() {
+            gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+              --search "\"$title\" in:title" --json number --jq '.[0].number // empty'
+          }
+          number=$(find_issue)
+          if [ -z "$number" ]; then
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body-file report.md
+            number=$(find_issue)
+          else
+            gh issue edit "$number" --repo "$GITHUB_REPOSITORY" --body-file report.md
+          fi
+
+          actions=$(grep -E '^## (RETIRE|DUE) - ' report.md || true)
+          if [ -z "$actions" ]; then
+            echo "nothing to retire"
+            exit 0
+          fi
+
+          {
+            echo "The weekly audit found work that may be ready to retire:"
+            echo
+            echo "$actions"
+            echo
+            echo "The full report is the issue body (refreshed each week)."
+          } > comment.md
+
+          last=$(gh issue view "$number" --repo "$GITHUB_REPOSITORY" \
+            --json comments --jq '.comments[-1].body // ""')
+          if [ "$last" = "$(cat comment.md)" ]; then
+            echo "same action list as last week - not commenting again"
+            exit 0
+          fi
+          gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body-file comment.md

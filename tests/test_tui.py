@@ -110,7 +110,7 @@ def test_lane_count_option_asks_for_a_number(tmp_path, monkeypatch):
     tui.show_checks_menu(runtime, knowledge)
 
     assert runtime.max_downloads == 7
-    assert (paths.state / "lanes.txt").read_text(encoding="utf-8") == "7"
+    assert "max_downloads = 7" in paths.settings.read_text(encoding="utf-8")
 
 
 def test_retry_skipped_moves_skip_txt_into_the_queue(tmp_path):

@@ -12,17 +12,13 @@ from pathlib import Path
 
 from . import records
 from .archive import load_sets
-from .config import Paths, Runtime
+from .config import Paths, Runtime, save_setting
 from .urls import Knowledge
 
 
 def save_lanes(paths: Paths, value: int) -> None:
-    """Remember the menu's lane count for the next start."""
-    try:
-        paths.state.mkdir(parents=True, exist_ok=True)
-        paths.lanes_pref.write_text(str(value), encoding="utf-8")
-    except OSError:
-        pass
+    """Write the menu's lane count back to config/dredge.conf."""
+    save_setting(paths.settings, "max_downloads", str(value))
 
 
 def archive_signature(path: str | Path) -> str:

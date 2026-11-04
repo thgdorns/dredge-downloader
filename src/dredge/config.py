@@ -74,11 +74,6 @@ class Paths:
         return self.root / "logs"
 
     @property
-    def lanes_pref(self) -> Path:
-        """Last lane count chosen in the menu, read at the next start."""
-        return self.state / "lanes.txt"
-
-    @property
     def tools(self) -> Path:
         return self.root / "tools"
 
@@ -339,21 +334,9 @@ class Settings:
         if default_name:
             values["default_dest"] = default_name
 
-        saved = _read_lanes(paths)
-        if saved is not None:
-            values["max_downloads"] = saved
         values.update({k: v for k, v in overrides.items() if v is not None})
 
         return cls(root=root, **values)  # type: ignore[arg-type]
-
-
-def _read_lanes(paths: Paths) -> int | None:
-    """The lane count last saved by the menu, if it is still valid."""
-    try:
-        value = int(paths.lanes_pref.read_text(encoding="utf-8").strip())
-    except (OSError, ValueError):
-        return None
-    return value if 1 <= value <= 16 else None
 
 
 def _read_conf(path: Path) -> tuple[dict[str, object], dict[str, dict[str, str]]]:
@@ -383,10 +366,10 @@ def _read_conf(path: Path) -> tuple[dict[str, object], dict[str, dict[str, str]]
         key, _, value = text.partition("=")
         key = key.strip().lower().replace("-", "_")
         value = value.strip().strip('"').strip("'")
-        if current is not None:
+        kind = known.get(key)
+        if current is not None and kind is None:
             current[key] = value
             continue
-        kind = known.get(key)
         if kind is None:
             continue
         try:
@@ -394,6 +377,30 @@ def _read_conf(path: Path) -> tuple[dict[str, object], dict[str, dict[str, str]]
         except ValueError:
             continue
     return out, sections
+
+
+def save_setting(path: str | Path, key: str, value: str) -> None:
+    """Set ``key = value`` in a config file, keeping every other line.
+
+    The menu uses this for the lane count, so it lives with the rest of the
+    per-user settings instead of a separate state file.
+    """
+    p = Path(path)
+    try:
+        text = p.read_text(encoding="utf-8-sig", errors="replace")
+    except OSError:
+        text = ""
+    pattern = re.compile(rf"(?im)^[ \t]*{re.escape(key)}[ \t]*=.*$")
+    line = f"{key} = {value}"
+    if pattern.search(text):
+        text = pattern.sub(line, text, count=1)
+    else:
+        text = text.rstrip() + ("\n\n" if text.strip() else "") + line + "\n"
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf-8", newline="")
+    except OSError:
+        pass
 
 
 @dataclass

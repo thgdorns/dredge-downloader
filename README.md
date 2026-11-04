@@ -102,9 +102,9 @@ Press **M** while it runs to open the menu. Inside: records check on/off, retry
 failed, retry skipped, skip failed, probe files, lane count, pause/resume,
 strict mode, and shortcuts to the record files. **Esc** goes back.
 
-The lane count chosen in the menu (item 6) is saved in
-`data/state/lanes.txt` and used on the next start; `--max-downloads` overrides
-it for that run only.
+The lane count chosen in the menu (item 6) is written back to
+`config/dredge.conf` (`max_downloads = N`), so the next start uses it;
+`--max-downloads` overrides it for that run only.
 
 Probe mode runs until **Esc** (or Ctrl+C) and leaves the queue paused so the
 list can be pruned first; it ends by resuming the downloads. With a piped

@@ -1,18 +1,56 @@
 from pathlib import Path
 
-from dredge.config import Paths, Settings, write_gallery_runtime
+from dredge.config import Paths, Settings, save_setting, write_gallery_runtime
 
 
-def test_a_saved_lane_count_is_used_on_the_next_start(tmp_path):
+def test_top_level_settings_after_destination_sections_are_read(tmp_path):
     paths = Paths(tmp_path)
     paths.ensure()
-    paths.lanes_pref.write_text("7", encoding="utf-8")
+    paths.config.mkdir(parents=True, exist_ok=True)
+    paths.settings.write_text(
+        """# header
+[dest:default]
+path = D:/Downloads
+layout = creator
 
+[dest:porn]
+path = D:/OTR/porn
+layout = flat
+
+max_downloads = 7
+cookies_browser = test
+""",
+        encoding="utf-8",
+    )
+
+    settings = Settings.load(paths)
+
+    assert settings.max_downloads == 7
+    assert settings.cookies_browser == "test"
+
+
+def test_save_setting_replaces_only_that_line(tmp_path):
+    paths = Paths(tmp_path)
+    paths.ensure()
+    paths.config.mkdir(parents=True, exist_ok=True)
+    paths.settings.write_text(
+        """# header
+[dest:default]
+path = D:/Downloads
+
+max_downloads = 4
+idle_seconds = 3
+""",
+        encoding="utf-8",
+    )
+
+    save_setting(paths.settings, "max_downloads", "7")
+
+    text = paths.settings.read_text(encoding="utf-8")
+    assert "max_downloads = 7" in text
+    assert text.count("max_downloads") == 1
+    assert "# header" in text and "idle_seconds = 3" in text
     assert Settings.load(paths).max_downloads == 7
-    assert Settings.load(paths, max_downloads=3).max_downloads == 3
-
-    paths.lanes_pref.write_text("99", encoding="utf-8")
-    assert Settings.load(paths).max_downloads == 4
 
 
 def test_defaults_match_the_legacy_script(tmp_path):

@@ -340,37 +340,32 @@ def test_gallery_dl_skip_lines_with_files_on_disk_are_a_success(tmp_path, monkey
     assert 'clip.mp4' in row
 
 
-def test_gallery_dl_archived_file_missing_here_is_fetched_again(tmp_path, monkeypatch):
+def test_gallery_dl_archived_file_missing_here_is_recorded_not_fetched(
+    tmp_path, monkeypatch
+):
     paths = Paths(tmp_path)
-    settings = Settings.load(paths, dest_default=tmp_path / 'dest', dry_run=False)
+    settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
     calls: list[list[str]] = []
 
     def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
         calls.append(list(args))
-        if '--download-archive' in args:
-            dest = tmp_path / 'dest'
-            dest.mkdir(parents=True, exist_ok=True)
-            path = dest / 'clip.mp4'
-            path.write_bytes(b'x' * 200_000)
-            if sink:
-                sink(str(path))
-            return 0, str(path)
-        text = '# G:\\Downloads\\old\\clip.mp4'
+        text = "# G:\\Downloads\\old\\clip.mp4"
         if sink:
             sink(text)
         return 0, text
 
-    monkeypatch.setattr(worker_module, 'run', fake)
-    worker = Worker(paths, settings, Engines(gdl='gallery-dl'), knowledge())
+    monkeypatch.setattr(worker_module, "run", fake)
+    worker = Worker(paths, settings, Engines(gdl="gallery-dl"), knowledge())
     verdict = worker.download(
-        'https://example.com/post/1',
-        dest=tmp_path / 'dest',
-        lane_log=tmp_path / 'lane1.log',
-        result=tmp_path / 'lane1.result',
-        archive=tmp_path / 'lane1.archive',
+        "https://example.com/post/1",
+        dest=tmp_path / "dest",
+        lane_log=tmp_path / "lane1.log",
+        result=tmp_path / "lane1.result",
+        archive=tmp_path / "lane1.archive",
     )
 
-    assert verdict == 'OK|gallery-dl'
-    assert (tmp_path / 'dest' / 'clip.mp4').exists()
-    assert any('--download-archive' in call for call in calls)
-
+    assert verdict == "OK|gallery-dl"
+    assert not (tmp_path / "dest" / "clip.mp4").exists()
+    assert not any("--download-archive" in call for call in calls)
+    row = (tmp_path / "lane1.archive").read_text(encoding="utf-8").strip()
+    assert "example.com/post/1" in row

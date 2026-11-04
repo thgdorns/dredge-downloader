@@ -315,26 +315,10 @@ class Worker:
                     self._lane(
                         "[gallery-dl] files already on disk - recording them as downloaded"
                     )
-
-            if (
-                engine == "gallery-dl" and not dry and not playlist and not existing
-            ):
-                self._lane("[gallery-dl] archived files are missing here - fetching them again")
-                retry_arc = Path(_temp_archive())
-                self._temps.append(retry_arc)
-                retry = [self.engines.gdl, "--download-archive", str(retry_arc), *args]
-                self._buffer.clear()
-                rc, _ = run(retry, cwd=self.paths.root, sink=self._sink)
-                out = self.text
-                if file_records(out, final_dest, files_manifest):
-                    engine = "gallery-dl"
-                    self._lane("[gallery-dl] archived file(s) were missing - downloaded them again")
-                else:
-                    engine = None
-                    gdl_handled = True
+                elif not made and skipped:
                     self._lane(
-                        "[gallery-dl] still only skip lines, nothing to record - counting as "
-                        "failed (tools/adopt-files.py records files already on disk)"
+                        "[gallery-dl] archived as downloaded - recording the post, "
+                        "not fetching it again"
                     )
             if not engine and playlist and not unsupported:
                 gdl_handled = True
@@ -681,6 +665,12 @@ class Worker:
                 lines.append(format_row(_row(self.knowledge.canon(page), hit)))
         elif records:
             lines.append(format_row(_row(self.knowledge.canon(url), records)))
+        elif engine == "gallery-dl" and not playlist and _SKIP_LINE.search(self.text):
+            # gallery-dl's archive says this URL was downloaded; the files may
+            # be on the other drive after a destination fallback. Record the
+            # URL without files so it is deduplicated from the queue, exactly
+            # as the archive considers it a duplicate.
+            lines.append(format_row(_row(self.knowledge.canon(url), [])))
         if lines:
             try:
                 Path(archive).write_text(

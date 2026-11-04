@@ -135,6 +135,24 @@ def test_dump_json_builds_item_urls_from_the_template(tmp_path):
     assert result.items[0].title == "Post"
 
 
+def test_a_warning_line_before_the_dump_does_not_hide_the_posts(tmp_path):
+    payload = "[\n" + json.dumps(
+        [2, {"service": "fanbox", "user": "someone", "id": "777", "title": "Post"}]
+    ) + "\n]\n"
+    text = "[gallery-dl][warning] 429 Too Many Requests\n" + payload
+
+    result = probe(
+        "https://example.com/fanbox/user/someone",
+        files=False,
+        knowledge=knowledge(),
+        paths=Paths(tmp_path),
+        engines=engines(yt=None),
+        runner=lambda args, cwd: (0, text),
+    )
+
+    assert [item.url for item in result.items] == ["https://example.com/fanbox/post/777"]
+
+
 def test_a_single_post_without_a_template_keeps_its_own_url(tmp_path):
     payload = json.dumps([[2, {"service": "fanbox", "user": "x", "id": "9"}]])
 

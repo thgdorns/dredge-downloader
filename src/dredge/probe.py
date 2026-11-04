@@ -144,6 +144,29 @@ def gdl_file_urls(url: str, *, paths: Paths, engines: Engines,
     return [Item(line) for line in _http_lines(text)]
 
 
+def parse_dump(text: str) -> list:
+    """Parse ``gallery-dl --dump-json`` output, ignoring warning lines before it.
+
+    ``run()`` merges stderr into stdout, so a ``[gallery-dl][warning] ...`` line
+    can precede the JSON array. The array itself starts on its own line (``[``),
+    which is not true of those warnings.
+    """
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip() == "[":
+            try:
+                return json.loads("\n".join(lines[index:]))
+            except ValueError:
+                return []
+    start = text.find("[[")          # compact output: one line, no warnings
+    if start < 0:
+        return []
+    try:
+        return json.loads(text[start:])
+    except ValueError:
+        return []
+
+
 def gdl_posts(url: str, *, paths: Paths, engines: Engines, runner: Runner,
               rule: SiteRule | None) -> list[Item]:
     """Post items from ``--dump-json``, with URLs built from the site template."""
@@ -160,13 +183,7 @@ def gdl_posts(url: str, *, paths: Paths, engines: Engines, runner: Runner,
         except OSError:
             pass
 
-    start = text.find("[")
-    if start < 0:
-        return []
-    try:
-        payload = json.loads(text[start:])
-    except ValueError:
-        return []
+    payload = parse_dump(text)
     posts = [
         entry[1] for entry in payload
         if isinstance(entry, list) and len(entry) >= 2

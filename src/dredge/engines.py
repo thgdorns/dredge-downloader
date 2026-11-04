@@ -93,9 +93,17 @@ def run(
     cwd: str | Path,
     sink: Sink | None = None,
     timeout: float | None = None,
+    stop_on: str | None = None,
 ) -> tuple[int, str]:
-    """Run a command, stream its output to ``sink``, return ``(rc, text)``."""
+    """Run a command, stream its output to ``sink``, return ``(rc, text)``.
+
+    ``stop_on`` kills the process as soon as a line matches the pattern. It is
+    for conditions the engine retries forever instead of failing, such as a
+    MEGA "509 over quota" answer: megatools then sleeps for minutes per chunk
+    and the lane would stay busy until the quota resets.
+    """
     lines: list[str] = []
+    stop = re.compile(stop_on) if stop_on else None
     proc = subprocess.Popen(
         list(args),
         cwd=str(cwd),
@@ -113,6 +121,10 @@ def run(
             lines.append(line)
             if sink:
                 sink(line)
+            if stop is not None and stop.search(line):
+                lines.append("[dredge] engine stopped: it cannot make progress")
+                proc.kill()
+                break
         rc = proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
         proc.kill()

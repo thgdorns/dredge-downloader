@@ -1,4 +1,6 @@
-from dredge.engines import lane_status
+import sys
+
+from dredge.engines import lane_status, run
 
 
 def test_ytdlp_progress_marker_gives_percent_and_speed(tmp_path):
@@ -54,3 +56,17 @@ def test_gallery_dl_size_suffixes_are_understood(tmp_path):
     _, pct, speed = lane_status(log)
     assert pct == "38%"
     assert speed == "1.6 MiB/s"
+
+
+def test_run_stops_an_engine_that_would_retry_forever(tmp_path):
+    code = (
+        "import time\n"
+        "print('Server returned 509 (over quota)', flush=True)\n"
+        "time.sleep(30)\n"
+    )
+    rc, text = run(
+        [sys.executable, "-c", code], cwd=tmp_path,
+        stop_on=r"509|over quota", timeout=15,
+    )
+    assert rc != 0
+    assert "engine stopped" in text

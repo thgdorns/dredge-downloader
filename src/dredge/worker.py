@@ -13,6 +13,7 @@ for the next pass), ``FAILED``, ``OFFLINE``.
 from __future__ import annotations
 
 import re
+import shutil
 import tempfile
 import threading
 import time
@@ -29,6 +30,11 @@ from .urls import Knowledge, Playlist
 
 _PATH_CHARS = r'[^\r\n"<>|]+'
 _SKIP_LINE = re.compile(r"(?m)^#\s+(.+?)\s*$")
+
+# Conditions an engine retries forever instead of failing. megatools sleeps for
+# minutes per chunk on a MEGA "509 over quota", so the lane would stay busy
+# until the quota resets; kill it and let the URL go to fail.txt instead.
+_QUOTA_STOP = r"(?i)(?:509|over ?quota|transfer quota|quota exceeded)"
 
 
 @dataclass(frozen=True)
@@ -332,7 +338,7 @@ class Worker:
 
         # --- tier 1f: file-host engines ---------------------------------
         if not engine and not dry and dl_rule and dl_rule.engine and dl_rule.engine != "gdl":
-            engine = self._filehost_engine(dl, final_dest, dest_root, dl_rule, slot, files_manifest)
+            engine = self._filehost_engine(dl, final_dest, dl_rule, slot, files_manifest)
 
         # --- tiers 2-3: yt-dlp ------------------------------------------
         if rule and rule.tpl:
@@ -594,7 +600,6 @@ class Worker:
         self,
         dl: str,
         dest: Path,
-        stage_root: Path,
         rule: SiteRule,
         slot: int,
         files_manifest: Path,
@@ -605,9 +610,14 @@ class Worker:
             self._lane(f"[{name}] not installed - cannot fetch this host without it (engine= in sites.txt)")
             return None
         self._lane(f"[{name}] {dl}")
-        stage = stage_root / f"~fh-lane{slot}"
+        # Scratch space lives under data/state, never in the library: the
+        # destination only ever receives finished files. The mover below is
+        # only safe on one volume, where a finished file can be renamed into
+        # place; across drives everything is copied after the engine exits.
+        stage = self.paths.state / "stage" / f"lane{slot}"
         _reset_stage(stage)
         self._lane(f"[{name}] staging {stage}")
+        same_volume = stage.drive.lower() == dest.drive.lower()
         moved: list[str] = []
         stop = threading.Event()
 
@@ -617,7 +627,7 @@ class Worker:
                 stop.wait(2)
 
         thread: threading.Thread | None = None
-        if name == "megadl":
+        if name == "megadl" and same_volume:
             thread = threading.Thread(target=mover, daemon=True)
             thread.start()
         if name == "megadl":
@@ -625,7 +635,7 @@ class Worker:
                     "--ignore-config-file", dl]
         else:
             args = [exe, "-o", str(stage), "-m", "4", "-t", "2", dl]
-        rc, out = run(args, cwd=self.paths.root, sink=self._sink)
+        rc, out = run(args, cwd=self.paths.root, sink=self._sink, stop_on=_QUOTA_STOP)
         stop.set()
         if thread:
             thread.join(timeout=15)
@@ -765,4 +775,14 @@ def _move_stage(stage: Path, dest: Path, moved: list[str]) -> None:
             item.replace(final)
             moved.append(str(final))
         except OSError:
-            pass
+            # os.replace works within one volume. A different drive means a
+            # copy (only reached after the engine exited, so the file is
+            # closed); a same-drive failure is usually the engine still
+            # writing it, so leave it for the next tick.
+            if item.drive.lower() == target.drive.lower():
+                continue
+            try:
+                shutil.move(str(item), str(final))
+                moved.append(str(final))
+            except OSError:
+                pass

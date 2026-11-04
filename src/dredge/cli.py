@@ -194,6 +194,7 @@ def prepare(
             pass
     for dest in settings.destinations.values():
         clean_staging(dest.path)
+    clean_lane_stage(paths.state / "stage")
 
     if fatal:
         print(paint.yellow("\nCannot start - the following are missing. Edit config/dredge.conf."))
@@ -216,7 +217,11 @@ def prepare(
 
 
 def clean_staging(dest: Path) -> None:
-    """Remove ``~dl-laneN`` / ``~fh-laneN`` folders left by a killed worker."""
+    """Remove ``~dl-laneN`` / ``~fh-laneN`` folders left by a killed worker.
+
+    File-host staging now lives under data/state (see ``clean_lane_stage``);
+    this also clears the old in-destination folders from earlier versions.
+    """
     folder = Path(dest)
     if not folder.is_dir():
         return
@@ -226,10 +231,22 @@ def clean_staging(dest: Path) -> None:
             continue
         try:
             size = sum(f.stat().st_size for f in stale.rglob("*") if f.is_file())
-            print(f"    clearing leftover staging folder {stale.name} ({size / 1024**2:.1f} MB)")
+            print(paint.darkgray(
+                f"    clearing leftover staging folder {stale.name} ({size / 1024**2:.1f} MB)"
+            ))
         except OSError:
             pass
         shutil.rmtree(stale, ignore_errors=True)
+
+
+def clean_lane_stage(root: Path) -> None:
+    """Remove the data/state staging folders a killed download left behind."""
+    folder = Path(root)
+    if not folder.is_dir():
+        return
+    for stale in folder.iterdir():
+        if stale.is_dir() and stale.name.startswith("lane"):
+            shutil.rmtree(stale, ignore_errors=True)
 
 
 def run_probe(

@@ -16,7 +16,7 @@ def knowledge(rule: SiteRule | None = None) -> Knowledge:
 def make_runner(behaviour: dict[str, dict]):
     """Fake engine call: writes the "downloaded" files and the manifest."""
 
-    def fake(args, *, cwd=None, sink=None, timeout=None):
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
         engine = "gdl" if Path(str(args[0])).stem.lower() in ("gdl", "gallery-dl") else "yt"
         spec = behaviour.get(engine, {})
         dest = None
@@ -162,7 +162,7 @@ def test_a_dry_run_never_writes_a_row(tmp_path, monkeypatch):
     )
     calls: list[list[str]] = []
 
-    def fake(args, *, cwd=None, sink=None, timeout=None):
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
         calls.append(list(args))
         return 0, ""
 
@@ -261,3 +261,37 @@ def test_keep_rule_keeps_only_the_first_file(tmp_path, monkeypatch):
     assert verdict == "OK|gallery-dl"
     row = (root / "lane1.archive").read_text(encoding="utf-8").strip()
     assert row.split("\t")[2] == "first.jpg"
+
+
+def test_filehost_staging_stays_out_of_the_library(tmp_path, monkeypatch):
+    rule = parse_rule('mega.nz engine=megadl')
+    paths = Paths(tmp_path)
+    settings = Settings.load(paths, dest_default=tmp_path / 'dest', dry_run=False)
+    stages: list[Path] = []
+    stops: list[str | None] = []
+
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+        stops.append(stop_on)
+        stage = Path(args[args.index('--path') + 1])
+        stages.append(stage)
+        (stage / 'clip.mp4').write_bytes(b'x' * 200_000)
+        return 0, ''
+
+    monkeypatch.setattr(worker_module, 'run', fake)
+    worker = Worker(
+        paths, settings, Engines(megadl='megatools'), knowledge(rule)
+    )
+    verdict = worker.download(
+        'https://mega.nz/file/abc#key',
+        dest=tmp_path / 'dest',
+        lane_log=tmp_path / 'lane1.log',
+        result=tmp_path / 'lane1.result',
+        archive=tmp_path / 'lane1.archive',
+    )
+
+    assert verdict == 'OK|megadl'
+    assert stages and stages[0].parent == paths.state / 'stage'
+    assert stops == [worker_module._QUOTA_STOP]
+    assert not (tmp_path / 'dest' / '~fh-lane1').exists()
+    assert (tmp_path / 'dest' / 'clip.mp4').exists()
+

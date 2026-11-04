@@ -38,7 +38,7 @@
         "config/mirrors.example.txt"
       ],
       "retire_when": "the site extractor matches a two-letter locale subdomain",
-      "issue": "https://github.com/yt-dlp/yt-dlp/issues/17995",
+      "issue": "",
       "checks": [
         {
           "kind": "extractor",
@@ -46,10 +46,6 @@
           "url": "https://br.youporn.com/watch/293578801",
           "expect_not": "generic",
           "timeout": 120
-        },
-        {
-          "kind": "issue",
-          "url": "https://github.com/yt-dlp/yt-dlp/issues/17995"
         }
       ]
     },
@@ -125,21 +121,6 @@
       "id": "gallery-dl#9861",
       "url": "https://github.com/mikf/gallery-dl/issues/9861",
       "title": "ecchi.iwara.tv unsupported"
-    },
-    {
-      "id": "yt-dlp#17995",
-      "url": "https://github.com/yt-dlp/yt-dlp/issues/17995",
-      "title": "locale subdomains -> generic"
-    },
-    {
-      "id": "yt-dlp#17996",
-      "url": "https://github.com/yt-dlp/yt-dlp/issues/17996",
-      "title": "aria2c on DASH fragments (docs)"
-    },
-    {
-      "id": "yt-dlp#17997",
-      "url": "https://github.com/yt-dlp/yt-dlp/issues/17997",
-      "title": "cookie jar size / 413 (docs)"
     }
   ]
 }

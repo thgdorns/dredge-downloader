@@ -3,7 +3,14 @@ from pathlib import Path
 
 from dredge import orchestrator, records
 from dredge.config import Paths, Runtime, Settings
-from dredge.orchestrator import Lane, _capture, _free_slot, _take_next, run_pass
+from dredge.orchestrator import (
+    Lane,
+    _capture,
+    _catch_up_queue,
+    _free_slot,
+    _take_next,
+    run_pass,
+)
 from dredge.sites import MirrorTable, SiteRule, parse_rule
 from dredge.urls import Knowledge
 
@@ -200,3 +207,30 @@ def test_a_terminal_gets_one_line_per_lane(tmp_path, monkeypatch):
     assert board.urls == [(1, "https://example.com/good")]
     assert board.done == [(1, "OK|gallery-dl")]
     assert board.refreshes >= 1
+
+
+def test_catch_up_queue_adds_a_line_written_during_a_pass(tmp_path):
+    paths = Paths(tmp_path)
+    settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
+    records.write_lines(paths.queue, [
+        "https://example.com/a",
+        "https://example.com/b",
+    ])
+    knowledge = Knowledge({}, SiteRule(host="*"), MirrorTable())
+    ordered = ["https://example.com/a"]
+    pending = [0]
+    remaining = ["https://example.com/a"]
+    queued = {"example.com/a"}
+
+    added = _catch_up_queue(
+        paths, knowledge, ordered, pending, remaining, queued, settings
+    )
+
+    assert added == ["https://example.com/b"]
+    assert ordered == ["https://example.com/a", "https://example.com/b"]
+    assert pending == [0, 1]
+    assert remaining == ["https://example.com/a", "https://example.com/b"]
+    assert "example.com/b" in queued
+    assert _catch_up_queue(
+        paths, knowledge, ordered, pending, remaining, queued, settings
+    ) == []

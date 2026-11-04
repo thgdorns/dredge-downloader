@@ -16,7 +16,7 @@ from pathlib import Path
 
 from . import paint, records, state
 from .archive import append_pending, merge_pending
-from .config import Runtime
+from .config import Paths, Runtime
 from .destinations import destination_for, free_gb, load_domains
 from .engines import Engines, lane_status, lane_status_tail
 from .lanes import LaneBoard
@@ -229,6 +229,11 @@ def run_pass(
                     board.set_url(slot, index + 1, len(ordered), url)
 
             _sleep(0.5, runtime, knowledge, board)
+            picked = _catch_up_queue(
+                paths, knowledge, ordered, pending, remaining, queued_canon, settings
+            )
+            if picked:
+                out(paint.cyan(f"[{stamp()}] queue: +{len(picked)} URL(s) picked up."))
             now = time.monotonic()
 
             if board:
@@ -445,6 +450,37 @@ def _mark_failed(runtime: Runtime, knowledge: Knowledge, url: str) -> None:
     ident = knowledge.seen_id(c)
     if ident:
         runtime.failed.add(ident)
+
+
+def _catch_up_queue(
+    paths: Paths,
+    knowledge: Knowledge,
+    ordered: list[str],
+    pending: list[int],
+    remaining: list[str],
+    queued_canon: set[str],
+    settings,
+) -> list[str]:
+    """Pick up URLs written to queue.txt while this pass is running.
+
+    The pass takes its plan once, but the menu's retry-failed action (and an
+    edit of queue.txt) can add URLs while lanes are busy. Without this, the
+    next completion rewrites queue.txt from ``remaining`` and the new lines
+    would be dropped.
+    """
+    if settings.dry_run:
+        return []
+    added: list[str] = []
+    for url in records.read_lines(paths.queue):
+        c = knowledge.canon(url)
+        if not c or c in queued_canon:
+            continue
+        queued_canon.add(c)
+        ordered.append(url)
+        pending.append(len(ordered) - 1)
+        remaining.append(url)
+        added.append(url)
+    return added
 
 
 def _capture(

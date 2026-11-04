@@ -355,6 +355,11 @@ class Worker:
         else:
             common3 = ["-P", str(final_dest), "-o", self.settings.tpl_generic]
         manifest_args = ["--print-to-file", "after_move:filepath", str(files_manifest)]
+        progress_args = [
+            "--newline", "--progress", "--progress-template",
+            ("download:dredge-yt %(progress.downloaded_bytes)s "
+             "%(progress.total_bytes)s %(progress.speed)s"),
+        ]
         yt_log = ""
 
         if not engine and not gdl_handled and self.engines.yt:
@@ -367,7 +372,7 @@ class Worker:
             rc, _ = run(
                 [self.engines.yt, "--ignore-config", "--config-locations",
                  str(self.paths.ytdlp_conf), *yt_args, *ignore_args, *common,
-                 *manifest_args, *extractor_args, *sim, dl],
+                 *manifest_args, *progress_args, *extractor_args, *sim, dl],
                 cwd=self.paths.root, sink=self._sink,
             )
             if rc == 0 and produced(final_dest, sig0, self.text, dry):
@@ -388,7 +393,7 @@ class Worker:
             rc, _ = run(
                 [self.engines.yt, "--ignore-config", "--config-locations",
                  str(self.paths.ytdlp_conf), "--downloader", "native", *ignore_args,
-                 *common, *manifest_args, *extractor_args, dl],
+                 *common, *manifest_args, *progress_args, *extractor_args, dl],
                 cwd=self.paths.root, sink=self._sink,
             )
             if rc == 0 and produced(final_dest, sig1, self.text, False):
@@ -417,7 +422,7 @@ class Worker:
             rc, _ = run(
                 [self.engines.yt, "--ignore-config", "--config-locations",
                  str(self.paths.ytdlp_generic_conf), *ignore_args, *common3,
-                 *manifest_args, *extractor_args, *sim, dl],
+                 *manifest_args, *progress_args, *extractor_args, *sim, dl],
                 cwd=self.paths.root, sink=self._sink,
             )
             if rc == 0 and produced(final_dest, sig0, self.text, dry):

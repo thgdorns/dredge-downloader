@@ -158,7 +158,7 @@ def run_pass(
     space_checked: dict[str, float] = {}
     full_dests: set[str] = set()
     progress_at = time.monotonic()
-    progress_last: dict[int, str] = {}
+    progress_last: dict[int, tuple[str, bool]] = {}
     queued_canon = {knowledge.canon(u) for u in ordered}
 
     while pending or active:
@@ -215,11 +215,13 @@ def run_pass(
         if settings.progress_every_seconds > 0 and (now - progress_at) >= settings.progress_every_seconds:
             progress_at = now
             for slot in sorted(active):
-                name, pct = lane_status(paths.lane_log(slot))
-                if not name or progress_last.get(slot) == name:
+                name, pct, speed = lane_status(paths.lane_log(slot))
+                key = (name, bool(speed))
+                if not name or progress_last.get(slot) == key:
                     continue
-                progress_last[slot] = name
-                detail = f"{name}  ({pct})" if pct else name
+                progress_last[slot] = key
+                extra = "  ".join(part for part in (pct, speed) if part)
+                detail = f"{name}  {extra}" if extra else name
                 lane = active[slot]
                 out(f"[{stamp()}] {lane.index}/{len(ordered)}: lane {slot}: {detail}")
 

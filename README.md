@@ -116,13 +116,15 @@ Each finished URL prints the same line the run log gets, with its position in
 the queue and the lane:
 
 ```
+[14:02:09] 20/1277: lane 2: clip.mp4  45.3%  12.3 MiB/s
 [14:02:11] 20/1277: lane 2: OK|gallery-dl -> clip.mp4  https://example.com/post/123
 [14:02:19] 21/1277: lane 1: FAILED  https://example.com/post/124
 ```
 
-Every 15 s a busy lane also prints the file it is working on, under the same
-`done/total: lane N:` prefix. Nothing is truncated; the console wraps long
-URLs on its own.
+Every 15 s a busy lane prints the file it is working on with the percentage
+and speed the engine reports (yt-dlp's progress template, gallery-dl's output
+mode), under the same `done/total: lane N:` prefix. Nothing is truncated; the
+console wraps long URLs on its own.
 
 ## How a URL is handled
 

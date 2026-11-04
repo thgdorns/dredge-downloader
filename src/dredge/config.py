@@ -191,6 +191,18 @@ def write_gallery_runtime(paths: Paths, settings: Settings) -> None:
     missing key count as empty instead of the literal string ``None``.
     """
     payload = {
+        "output": {
+            # Progress markers for the lane status (speed). Newline-terminated so
+            # the line is readable while the download runs; the format strings
+            # are gallery-dl's {0}=bytes, {1}=bytes/s, {2}=total, {3}=percent.
+            "mode": {
+                "start": "{}\n",
+                "success": "{}\n",
+                "skip": "# {}\n",
+                "progress": "dredge-gdl {0} {1} {2}\n",
+                "progress-total": "dredge-gdl {0} {1} {2} {3}\n",
+            }
+        },
         "extractor": {
             "keywords-default": "",
             "directory": [settings.gdl_dir],

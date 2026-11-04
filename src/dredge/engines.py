@@ -180,23 +180,63 @@ def produced(folder: str | Path, before: str, text: str, dry: bool) -> bool:
     return bool(re.search(r"(?m)^\[download\]\s+Destination:", text))
 
 
-def lane_status(lane_log: str | Path) -> tuple[str, str]:
-    """The file a lane is working on now, and its percentage when known."""
+def _number(value: str) -> float | None:
+    """A byte count/speed: raw digits or gallery-dl's ``4.78M`` style."""
+    text = value.strip().upper()
+    if not text or text in ("NA", "NONE"):
+        return None
+    factor = 1.0
+    for suffix, scale in (("K", 1024.0), ("M", 1024.0 ** 2), ("G", 1024.0 ** 3),
+                          ("T", 1024.0 ** 4)):
+        if text.endswith(suffix):
+            factor = scale
+            text = text[:-1]
+            break
+    try:
+        return float(text) * factor
+    except ValueError:
+        return None
+
+
+def _rate(value: str) -> str:
+    """Human speed from bytes/s; "" when unknown."""
+    speed = _number(value)
+    if speed is None or speed <= 0:
+        return ""
+    for unit in ("B/s", "KiB/s", "MiB/s", "GiB/s"):
+        if speed < 1024 or unit == "GiB/s":
+            return f"{speed:.1f} {unit}"
+        speed /= 1024
+    return ""
+
+
+def _percent(done: str, total: str) -> str:
+    downloaded = _number(done)
+    size = _number(total)
+    if downloaded is None or size is None or size <= 0:
+        return ""
+    return f"{downloaded * 100 / size:.1f}%"
+
+
+def lane_status(lane_log: str | Path) -> tuple[str, str, str]:
+    """The file a lane is working on now, its percentage and speed when known."""
     p = Path(lane_log)
     if not p.exists():
-        return "", ""
+        return "", "", ""
     try:
         text = p.read_text(encoding="utf-8", errors="replace")
     except OSError:
-        return "", ""
+        return "", "", ""
     file = ""
     pct = ""
+    speed = ""
     patterns = (
         r"\[download\]\s+Destination:\s*(.+)$",
         r"\[Merger\]\s+Merging formats into\s+\"?(.+?)\"?$",
         r"\[gallery-dl\]\s+(.+)$",
         r"\[yt-dlp[^\]]*\]\s+(https?://\S+)$",
         r"\[(?:megadl|mdrs)\]\s+staging\s+(.+)$",
+        r"^((?:[A-Za-z]:[\\/]|/)[^\r\n]+)$",
     )
     for line in text.splitlines():
         for pattern in patterns:
@@ -206,8 +246,27 @@ def lane_status(lane_log: str | Path) -> tuple[str, str]:
         m = re.search(r"(\d+(?:\.\d+)?%)\s+of", line)
         if m:
             pct = m.group(1)
-    if file and not pct:
-        pct = ""
+
+    # Progress markers written by our engine arguments. The lane log may carry
+    # many updates on one line (\r separated), so take the last match.
+    marks = list(re.finditer(r"dredge-yt\s+(\S+)\s+(\S+)\s+(\S+)", text))
+    if marks:
+        downloaded, total, rate = marks[-1].groups()
+        pct = _percent(downloaded, total) or pct
+        speed = _rate(rate)
+
+    marks = list(re.finditer(r"dredge-gdl\s+(\S+)\s+(\S+)\s+(\S+)(?:\s+(\S+))?", text))
+    if marks:
+        downloaded, rate, total, percent = marks[-1].groups()
+        if percent:
+            try:
+                pct = f"{float(percent):.0f}%"
+            except ValueError:
+                pct = _percent(downloaded, total) or pct
+        else:
+            pct = _percent(downloaded, total) or pct
+        speed = _rate(rate)
+
     if file:
         file = re.split(r"[\\/]", file)[-1]
-    return file, pct
+    return file, pct, speed

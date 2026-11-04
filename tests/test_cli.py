@@ -1,5 +1,6 @@
-from dredge import __version__
-from dredge.cli import build_parser
+from dredge import __version__, records
+from dredge.cli import build_parser, sort_records
+from dredge.config import Paths
 
 
 def test_legacy_flags_are_accepted():
@@ -23,3 +24,23 @@ def test_worker_flags():
 
 def test_version_is_reported():
     assert __version__
+
+
+def test_startup_sorts_the_record_lists(tmp_path):
+    paths = Paths(tmp_path)
+    paths.ensure()
+    records.write_lines(paths.queue, ["https://b", "https://a"])
+    records.write_lines(paths.fail, ["https://d", "https://c"])
+    records.write_lines(paths.offline, ["https://f", "https://e"])
+    paths.skip.write_text(
+        "# keep this\n\nhttps://z\nhttps://A\n", encoding="utf-8"
+    )
+
+    sort_records(paths)
+
+    assert records.read_lines(paths.queue) == ["https://a", "https://b"]
+    assert records.read_lines(paths.fail) == ["https://c", "https://d"]
+    assert records.read_lines(paths.offline) == ["https://e", "https://f"]
+    assert records.read_lines(paths.skip) == ["https://A", "https://z"]
+    assert paths.skip.read_bytes().startswith(b"# keep this\r\n")
+

@@ -165,6 +165,7 @@ def prepare(
         if not path.exists():
             path.parent.mkdir(parents=True, exist_ok=True)
             path.touch()
+    sort_records(paths)
 
     fatal: list[str] = []
     warn: list[str] = []
@@ -214,6 +215,34 @@ def prepare(
     if not args.no_cookies and not settings.dry_run:
         message = cookies.refresh(paths, knowledge, engines.gdl, settings.cookies_browser)
         print(paint.darkgray(message))
+
+
+def sort_records(paths: Paths) -> None:
+    """Put queue/fail/offline/skip in alphabetical order at startup.
+
+    Only the URL lines are sorted, case-insensitively; comments stay at the
+    top and blank lines are dropped.
+    """
+    for path in (paths.queue, paths.fail, paths.offline, paths.skip):
+        try:
+            raw = path.read_text(encoding="utf-8-sig", errors="replace").splitlines()
+        except OSError:
+            continue
+        urls = [
+            line.strip() for line in raw
+            if line.strip() and not line.strip().startswith("#")
+        ]
+        if not urls:
+            continue
+        ordered = sorted(urls, key=str.casefold)
+        comments = [line for line in raw if line.strip().startswith("#")]
+        if ordered == urls and not comments:
+            continue
+        text = "".join(line + "\r\n" for line in comments + ordered)
+        try:
+            path.write_text(text, encoding="utf-8", newline="")
+        except OSError:
+            pass
 
 
 def clean_staging(dest: Path) -> None:

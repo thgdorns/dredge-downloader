@@ -54,7 +54,7 @@ winget install mikf.gallery-dl
 winget install Gyan.FFmpeg
 winget install OpenJS.NodeJS
 
-git clone https://github.com/<you>/dredge.git
+git clone https://github.com/thgdorns/dredge-downloader.git
 cd dredge
 py -3.11 -m venv .venv
 .venv\Scripts\pip install -e ".[dev]"

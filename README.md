@@ -158,7 +158,7 @@ path = E:\Downloads
 layout = creator        ; one folder per uploader
 
 [dest:flat]
-path = E:\OTR\porn
+path = E:\Downloads\misc
 layout = flat           ; files go straight into the root
 ```
 
@@ -176,14 +176,6 @@ is.
 Only destinations on the default destination's drive move to a fallback drive
 when it is missing or below `dest_fallback_below_gb`; the drive letter changes,
 the tree does not.
-
-The old `config/pornsites.txt` is still read as `dest=flat` for its hosts while
-you migrate, with a startup warning. It is not needed: add `dest=flat` to the
-host's line in `sites.txt` and delete the file. A public adult-domain list is
-not a substitute - it answers "should this be blocked", not "where does this
-go". Measured against one 428k-domain list, 121 of 428 archive hosts would have
-moved roots and 12 domains the archive uses were missing, and the most complete
-list is CC BY-SA. Routing stays a local decision.
 
 ## Cookies and login
 

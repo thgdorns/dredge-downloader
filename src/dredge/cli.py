@@ -20,6 +20,7 @@ from . import __version__, clipboard, cookies, menu, state
 from .config import Paths, Runtime, Settings, write_gallery_runtime
 from .destinations import apply_fallback, load_domains
 from .engines import Engines, run
+from .lock import AlreadyRunning, InstanceLock
 from .orchestrator import run_pass
 from .probe import run_mode
 from .tui import show_dredge_menu
@@ -99,6 +100,28 @@ def main(argv: list[str] | None = None) -> int:
     if args.worker:
         return run_worker(paths, settings, knowledge, engines, args)
 
+    lock = InstanceLock(paths.lock)
+    try:
+        lock.acquire()
+    except AlreadyRunning as exc:
+        pid = f" (pid {exc.pid})" if exc.pid else ""
+        print(
+            f"another dredge is already running{pid} - close it before starting a second one."
+        )
+        return 3
+    try:
+        return _run_instance(paths, settings, knowledge, engines, args)
+    finally:
+        lock.release()
+
+
+def _run_instance(
+    paths: Paths,
+    settings: Settings,
+    knowledge: Knowledge,
+    engines: Engines,
+    args: argparse.Namespace,
+) -> int:
     settings = apply_fallback(settings)
     if settings.fallback_note:
         print(

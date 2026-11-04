@@ -146,6 +146,10 @@ class Paths:
         return self.state / "paused"
 
     @property
+    def lock(self) -> Path:
+        return self.state / "dredge.lock"
+
+    @property
     def staged_queue(self) -> Path:
         return self.state / "queue-requeue.txt"
 

@@ -107,6 +107,11 @@ list can be pruned first; it ends by resuming the downloads. With a piped
 stdin it drains `state/clip-inbox.txt` once and exits, which is what the tests
 and scripted runs use.
 
+Only **one instance per root** can run: the second one exits with code 3 and
+names the running process, so two processes cannot race on `queue.txt` and
+`fail.txt` (a pass rewrites the queue while a menu action moves failed links
+into it - that race can empty both).
+
 ## How a URL is handled
 
 1. Tracking arguments are stripped and the URL is canonicalised

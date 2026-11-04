@@ -1,8 +1,9 @@
 import threading
 from pathlib import Path
 
+from dredge import orchestrator, records
 from dredge.config import Paths, Runtime, Settings
-from dredge.orchestrator import Lane, _free_slot, _take_next
+from dredge.orchestrator import Lane, _free_slot, _take_next, run_pass
 from dredge.sites import MirrorTable, SiteRule, parse_rule
 from dredge.urls import Knowledge
 
@@ -52,3 +53,50 @@ def test_a_non_serial_host_keeps_the_queue_order():
     active = {1: lane("https://third.example/a")}
     index = _take_next(pending, urls, active, serial_knowledge())
     assert index == 0
+
+
+class FakeWorker:
+    """Stand-in for the real worker: one verdict, one row, no engines."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        pass
+
+    def download(self, url, *, dest, is_porn_dest, ignore_records, lane_log,
+                 result, archive, slot):
+        Path(lane_log).write_text(f"[test] {url}\r\n", encoding="utf-8")
+        if "bad" in url:
+            Path(result).write_text("FAILED", encoding="utf-8")
+            return "FAILED"
+        Path(result).write_text("OK|gallery-dl", encoding="utf-8")
+        Path(archive).write_text(
+            f"2026-01-01 00:00:00\turl:{url}\tclip.mp4\t200000\r\n",
+            encoding="utf-8",
+        )
+        return "OK|gallery-dl"
+
+
+def test_a_pass_records_success_and_failure(tmp_path, monkeypatch):
+    paths = Paths(tmp_path)
+    paths.ensure()
+    settings = Settings.load(
+        paths, dest_default=tmp_path / "dest", max_downloads=1,
+        no_capture=True, progress_every_seconds=0,
+    )
+    records.write_lines(paths.queue, [
+        "https://example.com/good",
+        "https://example.com/bad",
+    ])
+    monkeypatch.setattr(orchestrator, "Worker", FakeWorker)
+
+    runtime = Runtime(paths, settings)
+    stats = run_pass(runtime, Knowledge({}, SiteRule(host="*"), MirrorTable()),
+                     orchestrator.Engines(), out=lambda message: None)
+
+    assert stats is not None
+    assert stats.ok == {"gallery-dl": 1}
+    assert stats.failed == 1
+    assert records.read_lines(paths.queue) == []
+    assert records.read_lines(paths.fail) == ["https://example.com/bad"]
+    rows = records.read_lines(paths.archive)
+    assert len(rows) == 1
+    assert "clip.mp4" in rows[0]

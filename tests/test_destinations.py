@@ -1,5 +1,8 @@
+from dataclasses import replace
 from pathlib import Path
 
+from dredge import destinations
+from dredge.config import Paths, Settings
 from dredge.destinations import filehost_folder, is_porn
 from dredge.sites import MirrorTable, SiteRule, parse_rule
 from dredge.urls import Knowledge
@@ -66,3 +69,44 @@ def test_path_traversal_in_a_folder_name_is_neutralised():
     url = "https://www.mediafire.com/folder/abcd1234/..%2F..%2Fetc"
     name = filehost_folder(url, knowledge(), FILEHOSTS)
     assert Path(name).name == name
+
+
+def fallback_settings(tmp_path, **overrides):
+    settings = Settings.load(Paths(tmp_path))
+    values = {
+        "dest_default": Path("Z:/Downloads"),
+        "dest_porn": Path("Z:/OTR/porn"),
+        "dest_fallback": ("D:", "G:"),
+        "dest_fallback_below_gb": 20,
+        **overrides,
+    }
+    return replace(settings, **values)
+
+
+def test_fallback_moves_both_roots_when_the_primary_is_gone(tmp_path, monkeypatch):
+    settings = fallback_settings(tmp_path)
+    free = {"Z": -1.0, "D": 100.0, "G": 500.0}
+    monkeypatch.setattr(destinations, "free_gb", lambda p: free[str(p)[0]])
+
+    out = destinations.apply_fallback(settings)
+
+    assert out.dest_default == Path("D:/Downloads")
+    assert out.dest_porn == Path("D:/OTR/porn")
+    assert "not mounted" in out.fallback_note
+
+
+def test_a_full_primary_moves_to_the_first_drive_above_the_bar(tmp_path, monkeypatch):
+    settings = fallback_settings(tmp_path)
+    free = {"Z": 5.0, "D": 10.0, "G": 500.0}
+    monkeypatch.setattr(destinations, "free_gb", lambda p: free[str(p)[0]])
+
+    out = destinations.apply_fallback(settings)
+
+    assert out.dest_porn == Path("G:/OTR/porn")
+
+
+def test_nothing_changes_when_the_primary_has_room(tmp_path, monkeypatch):
+    settings = fallback_settings(tmp_path)
+    monkeypatch.setattr(destinations, "free_gb", lambda p: 500.0)
+
+    assert destinations.apply_fallback(settings) == settings

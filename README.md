@@ -112,6 +112,18 @@ names the running process, so two processes cannot race on `queue.txt` and
 `fail.txt` (a pass rewrites the queue while a menu action moves failed links
 into it - that race can empty both).
 
+Each finished URL prints the same line the run log gets, with its position in
+the queue and the lane:
+
+```
+[14:02:11] 20/1277: lane 2: OK|gallery-dl -> clip.mp4  https://example.com/post/123
+[14:02:19] 21/1277: lane 1: FAILED  https://example.com/post/124
+```
+
+Every 15 s a busy lane also prints the file it is working on, under the same
+`done/total: lane N:` prefix. Nothing is truncated; the console wraps long
+URLs on its own.
+
 ## How a URL is handled
 
 1. Tracking arguments are stripped and the URL is canonicalised

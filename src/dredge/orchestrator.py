@@ -37,6 +37,7 @@ class Lane:
     thread: threading.Thread
     result: Path
     archive: Path
+    index: int = 0          # 1-based position in the queue, for the terminal
 
 
 @dataclass
@@ -205,7 +206,7 @@ def run_pass(
                       not runtime.archive_check, lane_log, lane_result, lane_archive, slot),
                 daemon=True,
             )
-            active[slot] = Lane(slot, url, thread, lane_result, lane_archive)
+            active[slot] = Lane(slot, url, thread, lane_result, lane_archive, index + 1)
             thread.start()
 
         _sleep(0.5, runtime, knowledge)
@@ -219,7 +220,8 @@ def run_pass(
                     continue
                 progress_last[slot] = name
                 detail = f"{name}  ({pct})" if pct else name
-                out(f"[{stamp()}] lane {slot}: {detail}")
+                lane = active[slot]
+                out(f"[{stamp()}] {lane.index}/{len(ordered)}: lane {slot}: {detail}")
 
         if not settings.no_capture and not settings.dry_run:
             captured = state.read_clip_inbox(paths.clip_inbox)
@@ -275,9 +277,10 @@ def run_pass(
                 stats.ok[engine] = stats.ok.get(engine, 0) + 1
 
             files = _files_summary(rows)
-            _log_line(stats.log, f"[{stamp()}] {verdict}{files}  {lane.url}")
             done += 1
-            out(f"[{stamp()}] Progress: {done}/{len(ordered)} done.")
+            detail = f"{verdict}{files}  {lane.url}"
+            _log_line(stats.log, f"[{stamp()}] {detail}")
+            out(f"[{stamp()}] {done}/{len(ordered)}: lane {slot}: {detail}")
 
     if not settings.dry_run:
         merged_end = merge_pending(

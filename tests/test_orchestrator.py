@@ -89,8 +89,9 @@ def test_a_pass_records_success_and_failure(tmp_path, monkeypatch):
     monkeypatch.setattr(orchestrator, "Worker", FakeWorker)
 
     runtime = Runtime(paths, settings)
+    messages: list[str] = []
     stats = run_pass(runtime, Knowledge({}, SiteRule(host="*"), MirrorTable()),
-                     orchestrator.Engines(), out=lambda message: None)
+                     orchestrator.Engines(), out=messages.append)
 
     assert stats is not None
     assert stats.ok == {"gallery-dl": 1}
@@ -100,3 +101,6 @@ def test_a_pass_records_success_and_failure(tmp_path, monkeypatch):
     rows = records.read_lines(paths.archive)
     assert len(rows) == 1
     assert "clip.mp4" in rows[0]
+    text = "\n".join(messages)
+    assert "1/2: lane 1: OK|gallery-dl -> clip.mp4  https://example.com/good" in text
+    assert "2/2: lane 1: FAILED  https://example.com/bad" in text

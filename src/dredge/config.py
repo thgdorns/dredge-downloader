@@ -323,4 +323,4 @@ class Runtime:
     arc_sig: str = ""
 
     def __post_init__(self) -> None:
-        self.max_downloads = self.settings.max_downloads
+        self.max_downloads = max(1, int(self.settings.max_downloads))

@@ -68,3 +68,19 @@ def test_dry_run_leaves_both_files_alone(tmp_path):
 
     assert result.added == 1
     assert pending.read_text(encoding="utf-8").strip()
+
+
+def test_the_same_new_url_twice_in_one_batch_is_one_row(tmp_path):
+    archive = tmp_path / "downloads.tsv"
+    archive.write_text("", encoding="utf-8")
+    pending = tmp_path / "fold-pending.tsv"
+    pending.write_text(
+        "2026-01-02 00:00:00\texample.com/new\tNew.mp4\t2\n"
+        "2026-01-02 00:00:00\texample.com/new\tNew.mp4\t2\n",
+        encoding="utf-8",
+    )
+
+    result = merge_pending(pending, archive, set(), set(), knowledge())
+
+    assert result.added == 1
+    assert len(archive.read_text(encoding="utf-8").splitlines()) == 1

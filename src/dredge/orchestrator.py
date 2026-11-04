@@ -423,6 +423,8 @@ def _take_next(
 
 
 def _free_slot(active: dict[int, Lane], maximum: int) -> int | None:
+    if maximum < 1:
+        return None
     for slot in range(1, maximum + 1):
         if slot not in active:
             return slot

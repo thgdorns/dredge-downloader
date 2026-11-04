@@ -16,11 +16,12 @@ import sys
 import time
 from pathlib import Path
 
-from . import __version__, cookies, menu, state
+from . import __version__, clipboard, cookies, menu, state
 from .config import Paths, Runtime, Settings, write_gallery_runtime
 from .destinations import apply_fallback, load_domains
 from .engines import Engines, run
 from .orchestrator import run_pass
+from .probe import run_mode
 from .tui import show_dredge_menu
 from .urls import Knowledge
 from .worker import Worker
@@ -111,15 +112,13 @@ def main(argv: list[str] | None = None) -> int:
     runtime = Runtime(paths, settings)
 
     if args.probe or args.probe_files:
-        print(
-            "probe mode is not ported to the Python build yet - use the legacy\n"
-            "PowerShell script for 1 -> 4, or queue the creator page: the worker\n"
-            "expands it with a flat listing on the next pass."
-        )
-        return 2
+        return run_probe(runtime, knowledge, engines, files=args.probe_files)
 
     if args.menu:
-        show_dredge_menu(runtime, knowledge, probe_files=None)
+        show_dredge_menu(
+            runtime, knowledge,
+            probe_files=lambda: run_probe(runtime, knowledge, engines, files=True),
+        )
         if not (settings.once or settings.dry_run):
             return 0
 
@@ -213,6 +212,13 @@ def clean_staging(dest: Path) -> None:
         shutil.rmtree(stale, ignore_errors=True)
 
 
+def run_probe(
+    runtime: Runtime, knowledge: Knowledge, engines: Engines, *, files: bool
+) -> int:
+    """``--probe`` / menu 1 -> 4: list pages, queue new items, keep downloads paused."""
+    return run_mode(runtime, knowledge, engines, files=files)
+
+
 def run_worker(
     paths: Paths,
     settings: Settings,
@@ -224,6 +230,7 @@ def run_worker(
     if not args.url:
         print("--worker needs --url")
         return 2
+    paths.ensure()
     worker = Worker(
         paths,
         settings,
@@ -256,7 +263,10 @@ def run_loop(runtime: Runtime, knowledge: Knowledge, engines: Engines) -> int:
             return
         opened.append(True)
         try:
-            show_dredge_menu(runtime, knowledge, probe_files=None)
+            show_dredge_menu(
+                runtime, knowledge,
+                probe_files=lambda: run_probe(runtime, knowledge, engines, files=True),
+            )
         finally:
             opened.clear()
 
@@ -266,6 +276,8 @@ def run_loop(runtime: Runtime, knowledge: Knowledge, engines: Engines) -> int:
     if not settings.dry_run:
         state.update_archive_sets(runtime, knowledge)
     state.update_failed_set(runtime, knowledge)
+
+    capture = _start_capture(runtime)
 
     while True:
         if paths.paused.exists():
@@ -294,12 +306,32 @@ def run_loop(runtime: Runtime, knowledge: Knowledge, engines: Engines) -> int:
         if settings.once or settings.dry_run:
             break
 
+    if capture:
+        capture.stop()
+
     if not settings.no_prompt and sys.stdin is not None and sys.stdin.isatty():
         try:
             input("Press Enter to close")
         except EOFError:
             pass
     return 0
+
+
+def _start_capture(runtime: Runtime) -> clipboard.Capture | None:
+    """Start the clipboard watcher that feeds clip-inbox.txt, when enabled."""
+    settings = runtime.settings
+    if settings.dry_run or settings.no_capture:
+        return None
+    if not clipboard.available():
+        print(
+            f"[{_clock()}] clipboard capture off: pyperclip is not installed "
+            "(pip install pyperclip, or queue links by hand)."
+        )
+        return None
+    capture = clipboard.Capture(runtime.paths.clip_inbox)
+    capture.start()
+    print(f"[{_clock()}] clipboard capture on: copy a URL and it joins the queue.")
+    return capture
 
 
 def _clock() -> str:

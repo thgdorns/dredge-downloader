@@ -15,9 +15,11 @@ import ctypes
 import hashlib
 import re
 import sys
+import threading
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass
+from pathlib import Path
 
 URL_RE = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 _TRAILING = ").,;!?'\""
@@ -44,8 +46,20 @@ def _sequence_number() -> int | None:
         return None
 
 
+def available() -> bool:
+    """True when a clipboard backend can be imported."""
+    try:
+        import pyperclip  # noqa: F401 - availability probe
+    except ImportError:
+        return False
+    return True
+
+
 def _paste() -> str:
-    import pyperclip
+    try:
+        import pyperclip
+    except ImportError:
+        return ""
 
     try:
         return pyperclip.paste() or ""
@@ -77,3 +91,47 @@ class ClipboardWatcher:
         while True:
             yield from self.poll()
             time.sleep(self.interval)
+
+
+class Capture:
+    """Background clipboard watcher: copies URLs into ``clip-inbox.txt``.
+
+    The orchestrator drains that inbox at the head of a pass and between lane
+    completions, so this thread never touches the queue itself. A single writer
+    keeps the file append-only, which is what makes the drain atomic.
+    """
+
+    def __init__(self, inbox: str | Path, interval: float = 0.25) -> None:
+        self.inbox = Path(inbox)
+        self.interval = interval
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        try:
+            self.inbox.parent.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return
+        self._thread = threading.Thread(target=self._run, daemon=True, name="clipboard")
+        self._thread.start()
+
+    def _run(self) -> None:
+        watcher = ClipboardWatcher(interval=self.interval)
+        while not self._stop.is_set():
+            try:
+                urls = watcher.poll()
+            except Exception:  # noqa: BLE001 - a clipboard fault must not kill capture
+                urls = []
+            if urls:
+                try:
+                    with self.inbox.open("a", encoding="utf-8", newline="") as fh:
+                        for url in urls:
+                            fh.write(url + "\r\n")
+                except OSError:
+                    pass
+            self._stop.wait(self.interval)
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=2)

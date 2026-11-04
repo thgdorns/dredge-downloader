@@ -171,6 +171,7 @@ def merge_pending(
             by_key[ident] = index
 
     keep: list[str] = []
+    added: set[str] = set()
     grown = 0
     for row in rows:
         fields = row.split("\t")
@@ -183,6 +184,11 @@ def merge_pending(
             index = by_key.get(ident)
 
         if index is None:
+            if url in added or (ident and ident in added):
+                continue          # same URL twice in one batch: one row
+            added.add(url)
+            if ident:
+                added.add(ident)
             keep.append(row)
             seen.add(url)
             archived.add(url)

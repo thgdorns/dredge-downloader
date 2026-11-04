@@ -68,7 +68,7 @@ def show_checks_menu(
             if probe_files:
                 probe_files()
             else:
-                _say("probe mode is not ported yet - use the legacy script for this one.")
+                _say("probe mode needs the engines - run dredge with --probe-files.")
         elif choice == "5":
             _say(f"lanes now: {runtime.max_downloads}")
             answer = menu.prompt_line("    concurrent downloads (1-16, Enter keeps it) ").strip()

@@ -135,7 +135,7 @@ def probe_down(rule: SiteRule | None, paths: Paths) -> bool:
     if not rule or not rule.probe:
         return False
     paths.state.mkdir(parents=True, exist_ok=True)
-    cache = paths.state / f"probe-{rule.key or rule.host}.cache"
+    cache = paths.state / f"probe-{rule.host}.cache"
     if cache.exists() and (time.time() - cache.stat().st_mtime) < 15 * 60:
         return cache.read_text(encoding="utf-8", errors="replace").strip() == "down"
     up = any(test_tcp(h, 443, 2.5) for h in rule.probe)

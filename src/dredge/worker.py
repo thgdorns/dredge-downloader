@@ -222,6 +222,7 @@ class Worker:
     ) -> str:
         self._buffer = []
         self._url = url
+        self.paths.ensure()
         self._log_path = Path(lane_log) if lane_log else self.paths.lane_log(slot)
         try:
             self._log_path.write_text("", encoding="utf-8")

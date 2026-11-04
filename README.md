@@ -91,6 +91,7 @@ copy config\gallery-dl.conf.example config\gallery-dl.conf
 | `--dry-run` | `--simulate` only: asks the engines, writes no records |
 | `--menu` | open the console menu at startup |
 | `--retry-failed` | try URLs already in `fail.txt` / `offline.txt` again |
+| `--probe` / `--probe-files` | probe mode: list a copied page, queue its new item (or file) URLs, keep downloads paused for review |
 | `--max-downloads N` | concurrent lanes (default 4) |
 | `--no-capture` | do not watch the clipboard |
 | `--no-update` / `--no-cookies` | skip the engine update / cookie refresh |
@@ -99,8 +100,13 @@ copy config\gallery-dl.conf.example config\gallery-dl.conf
 | `--root DIR` | folder holding `config/`, `data/`, `logs/` (default: cwd) |
 
 Press **M** while it runs to open the menu. Inside: records check on/off, retry
-failed, skip failed, lane count, pause/resume, and shortcuts to the record
-files. **Esc** goes back.
+failed, skip failed, probe files, lane count, pause/resume, and shortcuts to
+the record files. **Esc** goes back.
+
+Probe mode runs until **Esc** (or Ctrl+C) and leaves the queue paused so the
+list can be pruned first; it ends by resuming the downloads. With a piped
+stdin it drains `state/clip-inbox.txt` once and exits, which is what the tests
+and scripted runs use.
 
 ## How a URL is handled
 
@@ -213,7 +219,7 @@ python -m dredge.watch      # KEEP / RETIRE / DUE / UNKNOWN per workaround
 - [x] lane pool, serial hosts, destination fallback, space guard
 - [x] console menu, records check, retry/skip failed
 - [x] clipboard capture without CopyQ
-- [ ] probe mode (`--probe`, `--probe-files`) - only in the private original
+- [x] probe mode (`--probe`, `--probe-files`, menu 1 -> 4)
 - [ ] Linux support beyond the pure-Python parts
 
 ## License

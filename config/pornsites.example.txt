@@ -1,4 +1,0 @@
-# Adult streaming-video routing list: one domain per line, subdomains match.
-# These are film/tube sites where one page is one video, so the file is
-# written flat into the adult destination - not into a per-creator folder.
-# Keep your own list local; this example is intentionally empty.

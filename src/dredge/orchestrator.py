@@ -16,7 +16,7 @@ from pathlib import Path
 from . import records, state
 from .archive import append_pending, merge_pending
 from .config import Runtime
-from .destinations import destination, free_gb, load_domains
+from .destinations import destination_for, free_gb, load_domains
 from .engines import Engines, lane_status
 from .plan import build_plan, order_by_destination, read_queue
 from .urls import Knowledge, host
@@ -77,7 +77,6 @@ def run_pass(
     """One pass. ``None`` when the queue held nothing usable."""
     paths = runtime.paths
     settings = runtime.settings
-    domains = load_domains(paths.pornsites)
     filehosts = load_domains(paths.filehosts)
     stamp = lambda: time.strftime("%H:%M:%S")
 
@@ -130,11 +129,14 @@ def run_pass(
         if not settings.dry_run:
             records.write_lines(paths.queue, plan.urls)
 
-    ordered, non_porn, porn = order_by_destination(
-        plan.urls, settings=settings, domains=domains
+    ordered, primary, secondary = order_by_destination(
+        plan.urls, settings=settings, knowledge=knowledge
     )
-    if non_porn and porn:
-        out(f"[{stamp()}] {non_porn} non-porn link(s) first, then {porn} adult link(s).")
+    if primary and secondary:
+        out(
+            f"[{stamp()}] {primary} link(s) to the default destination first, "
+            f"then {secondary} to the others."
+        )
     if not ordered:
         return None
 
@@ -152,33 +154,38 @@ def run_pass(
     done = 0
     pending_rows = 0
     pending_since = time.monotonic()
-    space_at = 0.0
+    space_checked: dict[str, float] = {}
+    full_dests: set[str] = set()
     progress_at = time.monotonic()
     progress_last: dict[int, str] = {}
     queued_canon = {knowledge.canon(u) for u in ordered}
 
     while pending or active:
         while len(active) < runtime.max_downloads and pending:
-            if not settings.dry_run and (time.monotonic() - space_at) >= 120:
-                space_at = time.monotonic()
-                free = free_gb(settings.dest_porn)
-                if 0 <= free < SPACE_STOP_GB:
-                    message = (
-                        f"[{stamp()}] Stopping: only {free:.0f} GB free on "
-                        f"{Path(settings.dest_porn).anchor} - {len(pending)} link(s) stay queued."
-                    )
-                    out(message)
-                    _log_line(stats.log, message)
-                    pending.clear()
-                    break
             index = _take_next(pending, ordered, active, knowledge)
             if index < 0:
                 break
+            url = ordered[index]
+            target = destination_for(url, knowledge, settings)
+            if not settings.dry_run:
+                if target.name in full_dests:
+                    continue        # leave it in queue.txt; this pass skips it
+                last = space_checked.get(target.name, 0.0)
+                if (time.monotonic() - last) >= 120:
+                    space_checked[target.name] = time.monotonic()
+                    free = free_gb(target.path)
+                    if 0 <= free < SPACE_STOP_GB:
+                        full_dests.add(target.name)
+                        message = (
+                            f"[{stamp()}] Stopping: only {free:.0f} GB free on "
+                            f"{target.path.anchor} ({target.name}) - its links stay queued."
+                        )
+                        out(message)
+                        _log_line(stats.log, message)
+                        continue
             slot = _free_slot(active, runtime.max_downloads)
             if slot is None:
                 break
-            url = ordered[index]
-            dest = destination(url, settings, domains)
             lane_log = paths.lane_log(slot)
             lane_result = paths.lane_result(slot)
             lane_archive = paths.lane_archive(slot)
@@ -189,13 +196,13 @@ def run_pass(
                     pass
             worker = Worker(
                 paths, settings, engines, knowledge,
-                domains=domains, filehosts=filehosts,
+                filehosts=filehosts,
                 strict_generic=runtime.strict_generic,
             )
             thread = threading.Thread(
                 target=_run_worker,
-                args=(worker, url, dest, dest == settings.dest_porn, not runtime.archive_check,
-                      lane_log, lane_result, lane_archive, slot),
+                args=(worker, url, target.path, target.layout == "flat", target.tpl,
+                      not runtime.archive_check, lane_log, lane_result, lane_archive, slot),
                 daemon=True,
             )
             active[slot] = Lane(slot, url, thread, lane_result, lane_archive)
@@ -296,7 +303,8 @@ def _run_worker(
     worker: Worker,
     url: str,
     dest: Path,
-    is_porn: bool,
+    flat: bool,
+    dest_tpl: str,
     ignore: bool,
     lane_log: Path,
     result: Path,
@@ -305,7 +313,7 @@ def _run_worker(
 ) -> None:
     try:
         worker.download(
-            url, dest=dest, is_porn_dest=is_porn, ignore_records=ignore,
+            url, dest=dest, flat=flat, dest_tpl=dest_tpl, ignore_records=ignore,
             lane_log=lane_log, result=result, archive=archive, slot=slot,
         )
     except Exception as exc:  # noqa: BLE001 - one URL must never kill the pass

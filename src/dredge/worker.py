@@ -1,4 +1,4 @@
-"""One URL, the whole tier chain, one verdict.
+﻿"""One URL, the whole tier chain, one verdict.
 
 The worker is deliberately engine-agnostic: gallery-dl first, then yt-dlp with
 its dedicated extractors, then yt-dlp again with its own downloader, then the
@@ -22,7 +22,7 @@ from pathlib import Path
 
 from .archive import format_row
 from .config import AV_EXT, MEDIA_EXT, OFFLINE_RE, RATE_RE, Paths, Settings
-from .destinations import filehost_folder, is_porn
+from .destinations import destination_for, filehost_folder
 from .engines import Engines, dir_signature, probe_down, produced, run
 from .sites import SiteRule
 from .urls import Knowledge, Playlist
@@ -133,7 +133,6 @@ class Worker:
         engines: Engines,
         knowledge: Knowledge,
         *,
-        domains: tuple[str, ...] = (),
         filehosts: tuple[str, ...] = (),
         strict_generic: bool | None = None,
     ) -> None:
@@ -141,7 +140,6 @@ class Worker:
         self.settings = settings
         self.engines = engines
         self.knowledge = knowledge
-        self.domains = domains
         self.filehosts = filehosts
         self.strict = (
             settings.strict_generic if strict_generic is None else strict_generic
@@ -185,7 +183,8 @@ class Worker:
         url: str,
         *,
         dest: str | Path | None = None,
-        is_porn_dest: bool = False,
+        flat: bool = False,
+        dest_tpl: str = "",
         ignore_records: bool = False,
         lane_log: str | Path | None = None,
         result: str | Path | None = None,
@@ -201,10 +200,13 @@ class Worker:
         except OSError:
             self._log_path = None
 
-        dest_root = Path(dest) if dest else (
-            self.settings.dest_porn if is_porn(url, self.domains) else self.settings.dest_default
-        )
-        porn = bool(is_porn_dest) or dest_root == self.settings.dest_porn
+        if dest is None:
+            target = destination_for(url, self.knowledge, self.settings)
+            dest_root = target.path
+            flat = target.layout == "flat"
+            dest_tpl = target.tpl
+        else:
+            dest_root = Path(dest)
         folder = filehost_folder(url, self.knowledge, self.filehosts)
         final_dest = dest_root / folder if folder else dest_root
         if folder:
@@ -272,7 +274,7 @@ class Worker:
         if self.engines.gdl:
             self._lane(f"[gallery-dl] {url}")
             args = self._gdl_args(
-                dl, final_dest, porn or bool(folder), dl_rule, playlist,
+                dl, final_dest, flat or bool(folder), dl_rule, playlist,
                 files_manifest, sim, ignore,
             )
             if playlist and archive:
@@ -333,18 +335,25 @@ class Worker:
             engine = self._filehost_engine(dl, final_dest, dest_root, dl_rule, slot, files_manifest)
 
         # --- tiers 2-3: yt-dlp ------------------------------------------
-        tpl = (
-            self.settings.tpl_porn if porn
-            else self.settings.tpl_generic if folder
-            else rule.tpl if rule and rule.tpl
-            else self.settings.tpl_default
-        )
+        if rule and rule.tpl:
+            tpl = rule.tpl
+        elif dest_tpl:
+            tpl = dest_tpl
+        elif flat:
+            tpl = self.settings.tpl_flat
+        elif folder:
+            tpl = self.settings.tpl_generic
+        else:
+            tpl = self.settings.tpl_default
         common = ["-P", str(final_dest), "-o", tpl]
-        common3 = (
-            common if porn or folder
-            else ["-P", str(final_dest), "-o", rule.tpl] if rule and rule.tpl
-            else ["-P", str(final_dest), "-o", self.settings.tpl_generic]
-        )
+        if flat or folder:
+            common3 = common
+        elif rule and rule.tpl:
+            common3 = ["-P", str(final_dest), "-o", rule.tpl]
+        elif dest_tpl:
+            common3 = ["-P", str(final_dest), "-o", dest_tpl]
+        else:
+            common3 = ["-P", str(final_dest), "-o", self.settings.tpl_generic]
         manifest_args = ["--print-to-file", "after_move:filepath", str(files_manifest)]
         yt_log = ""
 

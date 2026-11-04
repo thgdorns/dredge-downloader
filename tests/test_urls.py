@@ -23,3 +23,8 @@ def test_seen_id_matches_id_alone_or_after_slug():
     assert seen_id("iwara.tv/video/AbCdEf123456", "[A-Za-z0-9]{10,20}") == "abcdef123456"
     assert seen_id("iwara.tv/video/AbCdEf123456/some-slug", "[A-Za-z0-9]{10,20}") == "abcdef123456"
     assert seen_id("example.com/x", "[A-Za-z0-9]{10,20}") == ""
+
+
+def test_host_strips_port_and_userinfo():
+    assert host("http://127.0.0.1:8766/x") == "127.0.0.1"
+    assert host("https://user:pass@www.example.com:443/a") == "example.com"

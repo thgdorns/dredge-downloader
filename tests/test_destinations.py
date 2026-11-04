@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 
 from dredge import destinations
-from dredge.config import Paths, Settings
-from dredge.destinations import filehost_folder, is_porn
+from dredge.config import Destination, Paths, Settings
+from dredge.destinations import destination_for, filehost_folder
 from dredge.sites import MirrorTable, SiteRule, parse_rule
 from dredge.urls import Knowledge
 
@@ -17,11 +17,38 @@ def knowledge() -> Knowledge:
     return Knowledge(rules={}, global_rule=SiteRule(host="*"), mirrors=MirrorTable())
 
 
-def test_porn_domain_and_subdomain_match():
-    domains = ("spankbang.com", "pornhub.com")
-    assert is_porn("https://br.spankbang.com/abc/video", domains)
-    assert is_porn("https://www.pornhub.com/view", domains)
-    assert not is_porn("https://example.com/x", domains)
+def settings_with(destinations=None, default="default", legacy=()):
+    return Settings(
+        root=Path("."),
+        destinations=destinations or {
+            "default": Destination("default", Path("Z:/Downloads")),
+            "flat": Destination("flat", Path("Z:/OTR/porn"), "flat"),
+        },
+        default_dest=default,
+        legacy_flat=legacy,
+    )
+
+
+def test_a_site_rule_chooses_a_named_destination():
+    rules = {"example.com": parse_rule("example.com dest=flat")}
+    knowledge_ = Knowledge(rules=rules, global_rule=SiteRule(host="*"), mirrors=MirrorTable())
+    target = destination_for("https://example.com/x", knowledge_, settings_with())
+    assert (target.name, target.layout) == ("flat", "flat")
+
+
+def test_an_unknown_destination_falls_back_to_the_default():
+    rules = {"example.com": parse_rule("example.com dest=nope")}
+    knowledge_ = Knowledge(rules=rules, global_rule=SiteRule(host="*"), mirrors=MirrorTable())
+    target = destination_for("https://example.com/x", knowledge_, settings_with())
+    assert target.name == "default"
+
+
+def test_legacy_pornsites_domains_route_to_flat():
+    settings = settings_with(legacy=("old.example",))
+    knowledge_ = knowledge()
+    assert destination_for("https://old.example/x", knowledge_, settings).name == "flat"
+    assert destination_for("https://sub.old.example/x", knowledge_, settings).name == "flat"
+    assert destination_for("https://other.example/x", knowledge_, settings).name == "default"
 
 
 def test_folder_link_uses_the_collection_name():
@@ -77,8 +104,14 @@ def test_path_traversal_in_a_folder_name_is_neutralised():
 def fallback_settings(tmp_path, **overrides):
     settings = Settings.load(Paths(tmp_path))
     values = {
+        "destinations": {
+            "default": Destination("default", Path("Z:/Downloads")),
+            "flat": Destination("flat", Path("Z:/OTR/porn"), "flat"),
+            "music": Destination("music", Path("Y:/Music")),
+        },
+        "default_dest": "default",
         "dest_default": Path("Z:/Downloads"),
-        "dest_porn": Path("Z:/OTR/porn"),
+        "dest_flat": Path("Z:/OTR/porn"),
         "dest_fallback": ("D:", "G:"),
         "dest_fallback_below_gb": 20,
         **overrides,
@@ -94,8 +127,9 @@ def test_fallback_moves_both_roots_when_the_primary_is_gone(tmp_path, monkeypatc
 
     out = destinations.apply_fallback(settings)
 
-    assert out.dest_default == Path("D:/Downloads")
-    assert out.dest_porn == Path("D:/OTR/porn")
+    assert out.destinations["default"].path == Path("D:/Downloads")
+    assert out.destinations["flat"].path == Path("D:/OTR/porn")
+    assert out.destinations["music"].path == Path("Y:/Music")
     assert "not mounted" in out.fallback_note
 
 
@@ -107,7 +141,7 @@ def test_a_full_primary_moves_to_the_first_drive_above_the_bar(tmp_path, monkeyp
 
     out = destinations.apply_fallback(settings)
 
-    assert out.dest_porn == Path("G:/OTR/porn")
+    assert out.destinations["flat"].path == Path("G:/OTR/porn")
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="drive letters are a Windows concept")

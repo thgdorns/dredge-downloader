@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import unquote, urlsplit
 
 from .sites import MirrorTable, SiteRule, find_rule, load_global_rule, load_mirrors, load_rules
 
@@ -40,13 +40,17 @@ def _strip_scheme(url: str) -> str:
 
 
 def host(url: str) -> str:
-    """Lowercase host without a leading ``www.``; ``""`` for unparsable input."""
+    """Lowercase host without port, userinfo or a leading ``www.``; ``""`` if unparsable."""
     u = url.strip()
     if not u:
         return ""
-    u = _strip_scheme(u)
-    head = re.split(r"[/?#]", u, maxsplit=1)[0]
-    return head.lower().removeprefix("www.")
+    if "://" not in u:
+        u = "http://" + u
+    try:
+        name = urlsplit(u).hostname or ""
+    except ValueError:
+        return ""
+    return name.lower().removeprefix("www.")
 
 
 def _bare(hostname: str, mirrors: MirrorTable | None) -> str:

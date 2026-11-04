@@ -19,7 +19,7 @@ _LISTS = ("also", "probe", "cookiedrop")
 # Values kept verbatim (case matters: gdl= options and URL templates).
 _SCALARS = (
     "id", "tpl", "folder", "engine", "postid", "posturl", "itemurl", "playlist",
-    "strip", "dlstrip", "keepfrag", "list", "key",
+    "strip", "dlstrip", "keepfrag", "list", "key", "dest",
 )
 
 
@@ -43,6 +43,7 @@ class SiteRule:
     tpl: str = ""
     folder: str = ""
     engine: str = ""
+    dest: str = ""                # named destination for this host (dredge.conf)
     cookiedrop: tuple[str, ...] = ()
     strip: str = ""
     dlstrip: str = ""
@@ -104,7 +105,7 @@ def parse_rule(line: str) -> SiteRule | None:
         elif key == "gdl":
             rule.gdl = tuple(v.strip() for v in value.split(",") if v.strip())
         elif key in _SCALARS:
-            setattr(rule, key, value.lower() if key in ("engine", "key") else value)
+            setattr(rule, key, value.lower() if key in ("engine", "key", "dest") else value)
         else:
             rule.extra[key] = value
     return rule

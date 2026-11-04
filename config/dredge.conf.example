@@ -7,19 +7,39 @@
 # logs/ (the folder you pass with --root, or the current directory).
 
 # --- destinations -----------------------------------------------------------
-# Adult streaming-video sites in config/pornsites.txt go to dest_porn (flat);
-# everything else goes to dest_default (one folder per creator). Both are moved
-# to one of the fallback drives when the primary is missing or has less than
-# dest_fallback_below_gb GB free - only the drive letter changes.
-dest_default = E:\Downloads
-dest_porn = E:\OTR\porn
+# Named roots. A site picks one with `dest=NAME` in config/sites.txt; everything
+# else goes to destination_default. `layout` decides the folder shape:
+#   creator = one folder per uploader/creator (the tpl below)
+#   flat    = files straight into the root
+# A destination may set its own `tpl`; otherwise tpl_default/tpl_flat apply.
+# Add as many [dest:NAME] sections as you need (music, books, a second drive).
+[dest:default]
+path = E:\Downloads
+layout = creator
+
+[dest:flat]
+path = E:\OTR\porn
+layout = flat
+
+destination_default = default
+
+# Only destinations on the default destination's drive are moved to a fallback
+# drive when it is missing or has less than dest_fallback_below_gb GB free; only
+# the drive letter changes, so the trees stay mergeable.
 dest_fallback = D:,G:
 dest_fallback_below_gb = 20
 
+# Legacy keys, still read when there are no [dest:...] sections:
+#   dest_default = E:\Downloads
+#   dest_flat    = E:\OTR\porn      (the flat root; dest_porn is the old name)
+# The old config/pornsites.txt is also still read, as `dest=flat` for its hosts.
+# It is deprecated: put `dest=flat` on the host's line in sites.txt instead.
+
 # --- naming -----------------------------------------------------------------
-# yt-dlp templates. Per-site templates are tpl= lines in config/sites.txt.
+# yt-dlp templates. Per-site templates are tpl= lines in config/sites.txt;
+# a destination's tpl= wins over these.
 tpl_default = %(uploader,channel,creator,artist,extractor|NA)s/%(title).200s.%(ext)s
-tpl_porn = %(title).200s.%(ext)s
+tpl_flat = %(title).200s.%(ext)s
 tpl_generic = %(title).200s.%(ext)s
 # gallery-dl folder rule (alternatives syntax: first non-empty key wins).
 gdl_dir = {tag_string_artist|tags_artist[0]|uploader|uploader_name|channel|artist|creator|username|user[name]|author[name]|author|account[username]|category}

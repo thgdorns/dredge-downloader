@@ -61,7 +61,7 @@ class FakeWorker:
     def __init__(self, *args, **kwargs) -> None:
         pass
 
-    def download(self, url, *, dest, is_porn_dest, ignore_records, lane_log,
+    def download(self, url, *, dest, flat, dest_tpl, ignore_records, lane_log,
                  result, archive, slot):
         Path(lane_log).write_text(f"[test] {url}\r\n", encoding="utf-8")
         if "bad" in url:

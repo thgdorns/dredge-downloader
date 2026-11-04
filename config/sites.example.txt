@@ -4,7 +4,7 @@
 #     <host>  [keep=N|all] [min=SIZE] [id=REGEX] [also=HOSTS] [serial] [native]
 #             [probe=HOSTS] [gdl=KEY=VAL,...] [key=PARAM] [playlist=SEG]
 #             [postid=REGEX] [posturl=URL] [itemurl=URL] [tpl=TEMPLATE]
-#             [folder=REGEX] [cookiedrop=NAMES] [engine=NAME]
+#             [folder=REGEX] [cookiedrop=NAMES] [engine=NAME] [dest=NAME]
 #     *       [strip=REGEX] [dlstrip=REGEX] [keepfrag=REGEX]
 #
 #   <host>       subdomains match (example.com covers www.example.com)
@@ -25,6 +25,7 @@
 #   tpl=TEMPLATE yt-dlp output template for this site
 #   folder=REGEX file hosts: the collection folder name is capture group 1
 #   engine=NAME  the only engine for this host: gdl, megadl or mdrs
+#   dest=NAME    destination from dredge.conf ([dest:NAME]); default otherwise
 #   cookiedrop=NAMES  cookies a site must never receive (wildcards allowed)
 #
 # The global line (host "*") holds rules for every site:

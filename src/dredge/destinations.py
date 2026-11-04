@@ -1,4 +1,9 @@
-"""Destination routing: adult streaming-video sites to the porn root, the rest default.
+"""Destination routing: named destinations from ``dredge.conf``.
+
+A site chooses one with ``dest=NAME`` in ``sites.txt``; everything else goes to
+the ``destination_default`` destination. The old ``pornsites.txt`` is read as a
+deprecated alias for the ``flat`` destination, so an existing setup keeps
+working while it migrates to ``dest=flat`` lines.
 
 A file-hosting link names a file, not a creator, so it is written into
 ``<destination>/<folder>`` instead of loose in the destination root. The folder
@@ -15,7 +20,7 @@ from dataclasses import replace
 from pathlib import Path
 from urllib.parse import unquote
 
-from .config import Settings
+from .config import Destination, Settings
 from .urls import Knowledge, host
 
 _UNSAFE = re.compile(r'[\\/:*?"<>|]')
@@ -39,13 +44,20 @@ def load_domains(path: str | Path) -> tuple[str, ...]:
     return tuple(out)
 
 
-def is_porn(url: str, domains: tuple[str, ...]) -> bool:
+def destination_for(url: str, knowledge: Knowledge, settings: Settings) -> Destination:
+    """The named destination for a URL (site rule first, then legacy list)."""
+    rule = knowledge.rule(url)
+    if rule and rule.dest and rule.dest in settings.destinations:
+        return settings.destinations[rule.dest]
+
     h = host(url)
-    return any(h == d or h.endswith("." + d) for d in domains)
-
-
-def destination(url: str, settings: Settings, domains: tuple[str, ...]) -> Path:
-    return settings.dest_porn if is_porn(url, domains) else settings.dest_default
+    for domain in settings.legacy_flat:
+        if h == domain or h.endswith("." + domain):
+            fallback = settings.destinations.get("flat")
+            if fallback:
+                return fallback
+            break
+    return settings.destinations[settings.default_dest]
 
 
 def filehost_folder(
@@ -124,16 +136,19 @@ def drive_letters(value: str) -> tuple[str, ...]:
 
 
 def apply_fallback(settings: Settings) -> Settings:
-    """Point both destinations at a fallback drive when the primary is unusable.
+    """Move the destinations on a broken primary drive to a fallback drive.
 
     Same tree, only the drive letter changes, so the libraries stay mergeable.
-    A candidate is skipped when it is not mounted; the first one with enough free
-    space wins, otherwise the roomiest beats a worse primary.
+    The decision is made on the default destination (the bulk of the queue);
+    only destinations that share its drive are moved, so a library on another
+    disk is never touched. A candidate is skipped when it is not mounted; the
+    first one with enough free space wins, otherwise the roomiest.
     """
     drives = drive_letters(",".join(settings.dest_fallback))
     if not drives:
         return settings
-    free_now = free_gb(settings.dest_porn)
+    primary = settings.destinations[settings.default_dest]
+    free_now = free_gb(primary.path)
     gone = free_now < 0
     chosen: str | None = None
     chosen_free = -1.0
@@ -152,12 +167,20 @@ def apply_fallback(settings: Settings) -> Settings:
     if not (gone or (below and chosen_free > free_now)):
         return settings
 
+    primary_anchor = primary.path.anchor
+
     def move(p: Path) -> Path:
         parts = p.parts
         if not parts or not re.fullmatch(r"[A-Za-z]:", parts[0].rstrip("\\/")):
             return p
+        if p.anchor != primary_anchor:
+            return p                 # a destination on another disk stays put
         return Path(chosen + "\\").joinpath(*parts[1:])
 
+    moved = {
+        name: replace(dest, path=move(dest.path))
+        for name, dest in settings.destinations.items()
+    }
     if gone:
         note = f"destination drive is not mounted - writing to {chosen} instead, same tree"
     else:
@@ -167,7 +190,8 @@ def apply_fallback(settings: Settings) -> Settings:
         )
     return replace(
         settings,
-        dest_default=move(settings.dest_default),
-        dest_porn=move(settings.dest_porn),
+        destinations=moved,
+        dest_default=moved["default"].path if "default" in moved else settings.dest_default,
+        dest_flat=moved["flat"].path if "flat" in moved else settings.dest_flat,
         fallback_note=note,
     )

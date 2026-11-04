@@ -69,7 +69,8 @@ def build_parser() -> argparse.ArgumentParser:
     worker.add_argument("--worker", action="store_true", help="download one URL and exit")
     worker.add_argument("--url", default="", help="URL for --worker")
     worker.add_argument("--dest", default="", help="destination root for --worker")
-    worker.add_argument("--is-porn", action="store_true", help="--dest is the adult root")
+    worker.add_argument("--flat", action="store_true",
+                        help="--dest uses the flat layout (no per-creator folder)")
     worker.add_argument("--lane-log", default="", help="lane log file")
     worker.add_argument("--result", default="", help="file that receives the verdict")
     worker.add_argument("--archive", default="", help="file that receives the archive rows")
@@ -100,7 +101,10 @@ def main(argv: list[str] | None = None) -> int:
 
     settings = apply_fallback(settings)
     if settings.fallback_note:
-        print(f"[{_clock()}] {settings.fallback_note} ({settings.dest_porn}).")
+        print(
+            f"[{_clock()}] {settings.fallback_note} "
+            f"({settings.destinations[settings.default_dest].path})."
+        )
 
     try:
         prepare(paths, settings, knowledge, engines, args)
@@ -155,23 +159,23 @@ def prepare(
         warn.append(f"gallery-dl.conf not found: {paths.gallery_conf}")
     if not paths.cookies.exists():
         warn.append(f"cookies.txt not found: {paths.cookies} (some sites may fail)")
-    if not paths.pornsites.exists():
+    if paths.pornsites.exists():
         warn.append(
-            f"pornsites.txt not found: {paths.pornsites} "
-            "(everything routes to the default destination)"
+            f"pornsites.txt is deprecated: add `dest=flat` to each host's line in "
+            f"sites.txt and delete {paths.pornsites}"
         )
-    for dest in (settings.dest_default, settings.dest_porn):
-        anchor = Path(dest).anchor
+    for dest in settings.destinations.values():
+        anchor = Path(dest.path).anchor
         if anchor and not Path(anchor).exists():
-            fatal.append(f"destination drive not found: {dest}")
+            fatal.append(f"destination drive not found: {dest.path} ({dest.name})")
 
-    for dest in (settings.dest_default, settings.dest_porn):
+    for dest in settings.destinations.values():
         try:
-            Path(dest).mkdir(parents=True, exist_ok=True)
+            Path(dest.path).mkdir(parents=True, exist_ok=True)
         except OSError:
             pass
-    clean_staging(settings.dest_default)
-    clean_staging(settings.dest_porn)
+    for dest in settings.destinations.values():
+        clean_staging(dest.path)
 
     if fatal:
         print("\nCannot start - the following are missing. Edit config/dredge.conf.")
@@ -234,13 +238,12 @@ def run_worker(
         settings,
         engines,
         knowledge,
-        domains=load_domains(paths.pornsites),
         filehosts=load_domains(paths.filehosts),
     )
     verdict = worker.download(
         args.url,
         dest=Path(args.dest) if args.dest else None,
-        is_porn_dest=args.is_porn,
+        flat=args.flat,
         ignore_records=args.ignore_records,
         lane_log=args.lane_log or None,
         result=args.result or None,

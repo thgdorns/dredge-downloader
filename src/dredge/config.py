@@ -204,6 +204,16 @@ def _as_path(value: str, root: Path) -> Path:
     return p if p.is_absolute() else (root / p)
 
 
+@dataclass(frozen=True)
+class Destination:
+    """A named root: where files go and how they are named inside it."""
+
+    name: str
+    path: Path
+    layout: str = "creator"      # "creator" = one folder per uploader; "flat"
+    tpl: str = ""                # yt-dlp template; empty = the layout default
+
+
 @dataclass
 class Settings:
     """Runtime switches and the machine-specific values (destinations, templates).
@@ -214,12 +224,15 @@ class Settings:
 
     root: Path
     dest_default: Path = Path("E:/Downloads")
-    dest_porn: Path = Path("E:/OTR/porn")
+    dest_flat: Path = Path("E:/OTR/porn")
+    destinations: dict[str, Destination] = field(default_factory=dict)
+    default_dest: str = "default"
+    legacy_flat: tuple[str, ...] = ()     # domains from the old pornsites.txt
     dest_fallback: tuple[str, ...] = ("D:", "G:")
     dest_fallback_below_gb: int = 20
 
     tpl_default: str = "%(uploader,channel,creator,artist,extractor|NA)s/%(title).200s.%(ext)s"
-    tpl_porn: str = "%(title).200s.%(ext)s"
+    tpl_flat: str = "%(title).200s.%(ext)s"
     tpl_generic: str = "%(title).200s.%(ext)s"
     gdl_dir: str = (
         "{tag_string_artist|tags_artist[0]|uploader|uploader_name|channel|artist|"
@@ -256,43 +269,105 @@ class Settings:
     # destinations resolved after the drive fallback, for reference in menus
     fallback_note: str = ""
 
+    def __post_init__(self) -> None:
+        if not self.destinations:
+            self.destinations = {
+                "default": Destination("default", self.dest_default, "creator"),
+                "flat": Destination("flat", self.dest_flat, "flat"),
+            }
+        if self.default_dest not in self.destinations:
+            self.default_dest = (
+                "default" if "default" in self.destinations
+                else next(iter(self.destinations), "default")
+            )
+
     @classmethod
     def load(cls, paths: Paths, **overrides) -> Settings:
         values: dict[str, object] = {}
+        sections: dict[str, dict[str, str]] = {}
         conf = paths.settings
         if conf.exists():
-            values.update(_read_conf(conf))
+            values, sections = _read_conf(conf)
         values = {k: v for k, v in values.items() if v is not None}
         root = paths.root
-        for key in ("dest_default", "dest_porn"):
+        for key in ("dest_default", "dest_flat"):
             if key in values:
                 values[key] = _as_path(str(values[key]), root)
         if "dest_fallback" in values and isinstance(values["dest_fallback"], str):
             values["dest_fallback"] = tuple(
                 part.strip() for part in str(values["dest_fallback"]).split(",") if part.strip()
             )
+        default_name = str(values.pop("destination_default", "") or "").strip().lower()
+
+        built: dict[str, Destination] = {}
+        for name, raw in sections.items():
+            path = raw.get("path", "").strip()
+            if not path:
+                continue
+            layout = raw.get("layout", "creator").strip().lower()
+            built[name] = Destination(
+                name=name,
+                path=_as_path(path, root),
+                layout="flat" if layout == "flat" else "creator",
+                tpl=raw.get("tpl", "").strip(),
+            )
+        if built:
+            values["destinations"] = built
+        if default_name:
+            values["default_dest"] = default_name
+
         values.update({k: v for k, v in overrides.items() if v is not None})
+
+        if paths.pornsites.exists():
+            values.setdefault("legacy_flat", _read_domains(paths.pornsites))
         return cls(root=root, **values)  # type: ignore[arg-type]
 
 
-def _read_conf(path: Path) -> dict[str, object]:
-    """Read ``key = value`` lines; unknown keys are ignored, never fatal."""
+def _read_domains(path: Path) -> tuple[str, ...]:
+    out: list[str] = []
+    try:
+        text = path.read_text(encoding="utf-8-sig", errors="replace")
+    except OSError:
+        return ()
+    for line in text.splitlines():
+        value = line.split("#", 1)[0].strip().lower()
+        if value:
+            out.append(value.removeprefix("www."))
+    return tuple(out)
+
+
+def _read_conf(path: Path) -> tuple[dict[str, object], dict[str, dict[str, str]]]:
+    """Read the config: top-level ``key = value`` plus ``[dest:NAME]`` sections."""
     known = {
-        "dest_default": str, "dest_porn": str, "dest_fallback": str,
-        "dest_fallback_below_gb": int, "tpl_default": str, "tpl_porn": str,
+        "dest_default": str, "dest_flat": str,
+        "destination_default": str, "dest_fallback": str,
+        "dest_fallback_below_gb": int, "tpl_default": str, "tpl_flat": str,
         "tpl_generic": str, "gdl_dir": str, "max_downloads": int, "yt": str,
         "gdl": str, "megatools": str, "mediafire": str, "cookies_browser": str,
         "idle_seconds": int, "progress_every_seconds": int,
         "fold_batch_rows": int, "fold_batch_seconds": int,
     }
     out: dict[str, object] = {}
+    sections: dict[str, dict[str, str]] = {}
+    current: dict[str, str] | None = None
     for line in path.read_text(encoding="utf-8-sig", errors="replace").splitlines():
         text = line.strip()
-        if not text or text.startswith("#") or "=" not in text:
+        if not text or text.startswith("#"):
+            continue
+        if text.startswith("[") and text.endswith("]"):
+            name = text[1:-1].strip().lower()
+            current = sections.setdefault(name[5:], {}) if name.startswith("dest:") else None
+            continue
+        if "=" not in text:
             continue
         key, _, value = text.partition("=")
         key = key.strip().lower().replace("-", "_")
         value = value.strip().strip('"').strip("'")
+        if current is not None:
+            current[key] = value
+            continue
+        if key == "dest_porn":          # legacy name for the flat root
+            key = "dest_flat"
         kind = known.get(key)
         if kind is None:
             continue
@@ -300,7 +375,7 @@ def _read_conf(path: Path) -> dict[str, object]:
             out[key] = kind(value) if kind is not int else int(value)
         except ValueError:
             continue
-    return out
+    return out, sections
 
 
 @dataclass

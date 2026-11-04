@@ -67,7 +67,6 @@ point `megatools=` / `mediafire=` in `config/dredge.conf` at it.
 
 ```powershell
 copy config\sites.example.txt      config\sites.txt
-copy config\pornsites.example.txt  config\pornsites.txt
 copy config\mirrors.example.txt    config\mirrors.txt
 copy config\filehosts.example.txt  config\filehosts.txt
 copy config\generic-sites.example.txt config\generic-sites.txt
@@ -143,28 +142,48 @@ example.com   keep=all min=0 id=[0-9]{6,} native list=^/(?:profile/[^/]+|videos)
 
 `keep=`, `min=`, `id=`, `also=`, `serial`, `native`, `probe=`, `gdl=`, `key=`,
 `playlist=`, `postid=`, `posturl=`, `itemurl=`, `tpl=`, `folder=`, `cookiedrop=`,
-`engine=`, `list=`. The example file documents each one.
+`engine=`, `list=`, `dest=`. The example file documents each one.
 
-`config/dredge.conf` holds the few machine-specific values (destinations,
-fallback drives, templates, tool folders). See
+`config/dredge.conf` holds the machine-specific values (destinations, fallback
+drives, templates, tool folders). See
 [`config/dredge.conf.example`](config/dredge.conf.example).
 
-### `pornsites.txt` is a streaming-site list, not a blocklist
+### Destinations are named, and yours
 
-The file lists adult **streaming-video** sites - tube/film sites where one page
-is one video, so the file goes flat into the adult root. It is not "everything
-adult": image boards, galleries and creator mirrors keep their per-creator
-folder on the default root, which is why they are not in it.
+`dredge.conf` declares roots by name; a site picks one with `dest=NAME`:
 
-Public blocklists exist (StevenBlack's porn extension, blocklistproject's
-`porn.txt`, Bon-Appetit/porn-domains), but they answer "should this domain be
-blocked" across every kind of adult site. Checking one 428k-domain list against
-a 400-host archive moved 121 hosts - image boards, creator mirrors, general art
-sites - from `Downloads` to the flat root, splitting libraries that belong
-together, while missing 12 streaming domains the archive uses. The lists also
-change daily, and the most complete one is CC BY-SA, which does not belong
-inside an MIT repository. So: add a line when a site shows up, and keep the
-routing decision local.
+```ini
+[dest:default]
+path = E:\Downloads
+layout = creator        ; one folder per uploader
+
+[dest:flat]
+path = E:\OTR\porn
+layout = flat           ; files go straight into the root
+```
+
+```text
+# sites.txt
+example.com     dest=flat
+```
+
+`destination_default` names the root for sites without `dest=`. Declare as many
+destinations as you need - a second drive, music, books - and each can set its
+own `tpl`. `dest=` is a routing decision, not a content classification: it says
+where a download goes and which folder shape it gets, never what kind of site it
+is.
+
+Only destinations on the default destination's drive move to a fallback drive
+when it is missing or below `dest_fallback_below_gb`; the drive letter changes,
+the tree does not.
+
+The old `config/pornsites.txt` is still read as `dest=flat` for its hosts while
+you migrate, with a startup warning. It is not needed: add `dest=flat` to the
+host's line in `sites.txt` and delete the file. A public adult-domain list is
+not a substitute - it answers "should this be blocked", not "where does this
+go". Measured against one 428k-domain list, 121 of 428 archive hosts would have
+moved roots and 12 domains the archive uses were missing, and the most complete
+list is CC BY-SA. Routing stays a local decision.
 
 ## Cookies and login
 

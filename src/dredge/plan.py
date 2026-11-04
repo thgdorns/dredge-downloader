@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .destinations import destination
+from .destinations import destination_for
 from .urls import Knowledge
 
 _HTTP = re.compile(r"(?i)^https?://")
@@ -107,21 +107,22 @@ def order_by_destination(
     urls: list[str],
     *,
     settings,
-    domains: tuple[str, ...],
+    knowledge,
 ) -> tuple[list[str], int, int]:
-    """Non-porn links first; returns ``(ordered, non_porn, porn)``.
+    """Default-destination links first; returns ``(ordered, primary, secondary)``.
 
     They are the bulk of a queue and land in per-creator folders, so they must
-    not wait behind a long tail of adult links.
+    not wait behind a long tail of links going to another root.
     """
-    non_porn: list[str] = []
-    porn: list[str] = []
+    primary: list[str] = []
+    secondary: list[str] = []
     for url in urls:
-        if destination(url, settings, domains) == settings.dest_porn:
-            porn.append(url)
+        target = destination_for(url, knowledge, settings)
+        if target.name == settings.default_dest:
+            primary.append(url)
         else:
-            non_porn.append(url)
-    return non_porn + porn, len(non_porn), len(porn)
+            secondary.append(url)
+    return primary + secondary, len(primary), len(secondary)
 
 
 def read_queue(path: str | Path) -> list[str]:

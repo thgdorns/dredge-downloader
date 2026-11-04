@@ -1,4 +1,4 @@
-"""Destination routing: adult domains to the porn root, everything else default.
+"""Destination routing: adult streaming-video sites to the porn root, the rest default.
 
 A file-hosting link names a file, not a creator, so it is written into
 ``<destination>/<folder>`` instead of loose in the destination root. The folder

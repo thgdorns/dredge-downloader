@@ -138,17 +138,22 @@ example.com   keep=all min=0 id=[0-9]{6,} native list=^/(?:profile/[^/]+|videos)
 fallback drives, templates, tool folders). See
 [`config/dredge.conf.example`](config/dredge.conf.example).
 
-### Why `pornsites.txt` is curated, not a downloaded blocklist
+### `pornsites.txt` is a streaming-site list, not a blocklist
 
-Public lists exist (StevenBlack's porn extension, blocklistproject's
+The file lists adult **streaming-video** sites - tube/film sites where one page
+is one video, so the file goes flat into the adult root. It is not "everything
+adult": image boards, galleries and creator mirrors keep their per-creator
+folder on the default root, which is why they are not in it.
+
+Public blocklists exist (StevenBlack's porn extension, blocklistproject's
 `porn.txt`, Bon-Appetit/porn-domains), but they answer "should this domain be
-blocked" - not the question this file answers: "which root does this download
-go into". Checking one 428k-domain list against a 400-host archive moved 121
-hosts - image boards, creator mirrors, general art sites - from `Downloads` to
-the adult root, splitting libraries that belong together, while missing 12
-domains the archive uses. The lists also change daily, and the most complete
-one is CC BY-SA, which does not belong inside an MIT repository. So: add a line
-when a site shows up, and keep the routing decision local.
+blocked" across every kind of adult site. Checking one 428k-domain list against
+a 400-host archive moved 121 hosts - image boards, creator mirrors, general art
+sites - from `Downloads` to the flat root, splitting libraries that belong
+together, while missing 12 streaming domains the archive uses. The lists also
+change daily, and the most complete one is CC BY-SA, which does not belong
+inside an MIT repository. So: add a line when a site shows up, and keep the
+routing decision local.
 
 ## Cookies and login
 

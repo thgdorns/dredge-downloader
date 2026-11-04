@@ -7,9 +7,9 @@
 # logs/ (the folder you pass with --root, or the current directory).
 
 # --- destinations -----------------------------------------------------------
-# Adult domains in config/pornsites.txt go to dest_porn (flat); everything else
-# goes to dest_default (one folder per creator). Both are moved to one of the
-# fallback drives when the primary is missing or has less than
+# Adult streaming-video sites in config/pornsites.txt go to dest_porn (flat);
+# everything else goes to dest_default (one folder per creator). Both are moved
+# to one of the fallback drives when the primary is missing or has less than
 # dest_fallback_below_gb GB free - only the drive letter changes.
 dest_default = E:\Downloads
 dest_porn = E:\OTR\porn

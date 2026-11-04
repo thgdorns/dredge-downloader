@@ -137,3 +137,25 @@ def test_a_dry_run_never_writes_a_row(tmp_path, monkeypatch):
     assert verdict.startswith("OK|")
     assert not (tmp_path / "lane1.archive").exists()
     assert any("--simulate" in call for call in calls)
+
+
+def test_drop_gallery_entries_removes_junk_and_post_keys(tmp_path):
+    import sqlite3
+
+    db = tmp_path / "archive.sqlite3"
+    con = sqlite3.connect(db)
+    con.execute("create table archive (entry text)")
+    con.executemany("insert into archive values (?)", [
+        ("directlinkhttps://x/a.mp4",),
+        ("kemono_user_123_3",),
+        ("kemono_user_123_4",),
+        ("other",),
+    ])
+    con.commit()
+    con.close()
+
+    dropped = worker_module.drop_gallery_entries(db, ["123_Title_03_name.jpg"])
+
+    assert dropped == 1
+    remaining = {row[0] for row in sqlite3.connect(db).execute("select entry from archive")}
+    assert remaining == {"directlinkhttps://x/a.mp4", "kemono_user_123_4", "other"}

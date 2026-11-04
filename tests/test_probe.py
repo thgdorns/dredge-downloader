@@ -181,3 +181,33 @@ def test_format_result_marks_each_item():
     assert "1 new -> queue.txt" in text
     assert "https://example.com/a  [new]  A" in text
     assert "https://example.com/b  [queued]" in text
+
+
+def test_probe_mode_drains_the_inbox_and_queues_the_new_items(tmp_path, monkeypatch):
+    from dredge import probe as probe_mod
+    from dredge import records
+    from dredge.config import Runtime, Settings
+
+    paths = Paths(tmp_path)
+    paths.ensure()
+    settings = Settings.load(paths, dest_default=tmp_path / "dest")
+    runtime = Runtime(paths, settings)
+
+    monkeypatch.setattr(
+        probe_mod.state, "read_clip_inbox", lambda p: ["https://example.com/a"]
+    )
+    monkeypatch.setattr(
+        probe_mod, "probe",
+        lambda *a, **k: probe_mod.Result(
+            url="https://example.com/a", source="test",
+            items=[probe_mod.Item("https://example.com/a")], counts={"new": 1},
+        ),
+    )
+
+    rc = probe_mod.run_mode(
+        runtime, knowledge(), engines(), files=False, out=lambda message: None
+    )
+
+    assert rc == 0
+    assert records.read_lines(paths.queue) == ["https://example.com/a"]
+    assert not paths.paused.exists()

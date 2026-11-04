@@ -3,7 +3,7 @@ from pathlib import Path
 
 from dredge import orchestrator, records
 from dredge.config import Paths, Runtime, Settings
-from dredge.orchestrator import Lane, _free_slot, _take_next, run_pass
+from dredge.orchestrator import Lane, _capture, _free_slot, _take_next, run_pass
 from dredge.sites import MirrorTable, SiteRule, parse_rule
 from dredge.urls import Knowledge
 
@@ -137,6 +137,43 @@ class FakeBoard:
 
     def refresh(self) -> None:
         self.refreshes += 1
+
+
+def test_capture_counts_added_and_rejected(tmp_path):
+    paths = Paths(tmp_path)
+    settings = Settings.load(
+        paths, dest_default=tmp_path / "dest", retry_failed=False
+    )
+    runtime = Runtime(paths, settings)
+    runtime.seen = {"example.com/downloaded"}
+    runtime.skip_always = {"example.com/skipped"}
+    runtime.failed = {"example.com/failed"}
+    queued = {"example.com/queued"}
+    knowledge = Knowledge({}, SiteRule(host="*"), MirrorTable())
+
+    added, rejected = _capture(
+        [
+            "https://example.com/new",
+            "https://example.com/queued",
+            "https://example.com/downloaded",
+            "https://example.com/skipped",
+            "https://example.com/failed",
+            "not a url",
+        ],
+        queued,
+        runtime,
+        knowledge,
+        settings,
+    )
+
+    assert added == ["https://example.com/new"]
+    assert rejected == {
+        "already queued": 1,
+        "already downloaded": 1,
+        "in skip.txt": 1,
+        "failed before": 1,
+        "not a URL": 1,
+    }
 
 
 def test_a_terminal_gets_one_line_per_lane(tmp_path, monkeypatch):

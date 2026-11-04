@@ -267,7 +267,9 @@ def run_pass(
             if not settings.no_capture and not settings.dry_run:
                 captured = state.read_clip_inbox(paths.clip_inbox)
                 if captured:
-                    added = _capture(captured, queued_canon, runtime, knowledge, settings)
+                    added, rejected = _capture(
+                        captured, queued_canon, runtime, knowledge, settings
+                    )
                     if added:
                         records.append_lines(paths.queue, added)
                         for url in added:
@@ -275,6 +277,17 @@ def run_pass(
                                 remaining.append(url)
                                 ordered.append(url)
                                 pending.append(len(ordered) - 1)
+                        out(paint.cyan(
+                            f"[{stamp()}] clipboard: +{len(added)} URL(s) queued."
+                        ))
+                    if rejected:
+                        total = sum(rejected.values())
+                        parts = ", ".join(
+                            f"{count} {reason}" for reason, count in rejected.items()
+                        )
+                        out(paint.darkgray(
+                            f"[{stamp()}] clipboard: {total} URL(s) skipped ({parts})."
+                        ))
 
             finished = [slot for slot, lane in active.items() if not lane.thread.is_alive()]
             for slot in finished:
@@ -440,27 +453,43 @@ def _capture(
     runtime: Runtime,
     knowledge: Knowledge,
     settings,
-) -> list[str]:
+) -> tuple[list[str], dict[str, int]]:
+    """Queue new clipboard URLs; also count why the others were left out."""
     added: list[str] = []
+    rejected: dict[str, int] = {}
+
+    def reject(reason: str) -> None:
+        rejected[reason] = rejected.get(reason, 0) + 1
+
     for url in urls:
+        if not url.lower().startswith(("http://", "https://")):
+            reject("not a URL")
+            continue
         c = knowledge.canon(url)
-        if not c or c in queued:
+        if not c:
+            reject("not a URL")
+            continue
+        if c in queued:
+            reject("already queued")
             continue
         ident = knowledge.seen_id(c)
         if runtime.archive_check and (c in runtime.seen or (ident and ident in runtime.seen)):
+            reject("already downloaded")
             continue
         if runtime.archive_check and (
             c in runtime.skip_always or url in runtime.skip_always
             or (ident and ident in runtime.skip_always)
         ):
+            reject("in skip.txt")
             continue
         if runtime.archive_check and not settings.retry_failed and (
             c in runtime.failed or url in runtime.failed or (ident and ident in runtime.failed)
         ):
+            reject("failed before")
             continue
         queued.add(c)
         added.append(url)
-    return added
+    return added, rejected
 
 
 def _serial(url: str, knowledge: Knowledge) -> bool:

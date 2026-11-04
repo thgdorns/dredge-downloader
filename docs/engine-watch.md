@@ -73,9 +73,14 @@ Rules of thumb:
 
 ## Scheduled runs
 
-`docs/engine-watch.workflow.yml` is the GitHub Actions workflow: weekly, it
-installs the latest engines, runs the audit and opens (or updates) an issue when
-something can be retired or a manual check is due.
+`docs/engine-watch.workflow.yml` is the GitHub Actions workflow. Every Monday
+it installs the latest engines, runs the audit and keeps **one open issue**
+(`engine-watch: current report`) whose body is replaced with the fresh report -
+so the version table and verdicts are always current without notifying anyone.
+
+A comment is added only when the list of `RETIRE`/`DUE` items changes, so an
+unfixed item does not spam the thread; the issue body stays the source of
+truth between runs.
 
 Installing it needs the `workflow` scope, which the login used for the rest of
 this repository does not have:

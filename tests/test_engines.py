@@ -1,6 +1,6 @@
 import sys
 
-from dredge.engines import lane_status, run
+from dredge.engines import lane_status, lane_status_tail, run
 
 
 def test_ytdlp_progress_marker_gives_percent_and_speed(tmp_path):
@@ -70,3 +70,27 @@ def test_run_stops_an_engine_that_would_retry_forever(tmp_path):
     )
     assert rc != 0
     assert "engine stopped" in text
+
+
+def test_megatools_progress_gives_filename_percent_and_speed(tmp_path):
+    log = tmp_path / "lane1.log"
+    log.write_text(
+        "Re 3P2 eroero HD1080p.mp4: 27.03% - 256.0 MiB (268435456 bytes) "
+        "of 947.2 MiB (969.8 KiB/s)\n",
+        encoding="utf-8",
+    )
+    file, pct, speed = lane_status(log)
+    assert file == "Re 3P2 eroero HD1080p.mp4"
+    assert pct == "27.0%"
+    assert speed == "969.8 KiB/s"
+
+
+def test_lane_status_tail_reads_the_ends_of_a_big_log(tmp_path):
+    log = tmp_path / "lane1.log"
+    log.write_text(
+        "[download] Destination: D:\\Downloads\\clip.mp4\n"
+        + "noise line\n" * 2000
+        + "dredge-yt 52428800 104857600 5242880\n",
+        encoding="utf-8",
+    )
+    assert lane_status_tail(log) == lane_status(log)

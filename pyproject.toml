@@ -13,6 +13,7 @@ authors = [{ name = "dredge contributors" }]
 dependencies = [
   "pyperclip>=1.9",
   "prompt-toolkit>=3.0",
+  "rich>=13.7",
 ]
 
 [project.optional-dependencies]

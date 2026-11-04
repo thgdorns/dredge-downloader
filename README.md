@@ -116,15 +116,25 @@ Each finished URL prints the same line the run log gets, with its position in
 the queue and the lane:
 
 ```
-[14:02:09] 20/1277: lane 2: clip.mp4  45.3%  12.3 MiB/s
 [14:02:11] 20/1277: lane 2: OK|gallery-dl -> clip.mp4  https://example.com/post/123
 [14:02:19] 21/1277: lane 1: FAILED  https://example.com/post/124
 ```
 
-Every 15 s a busy lane prints the file it is working on with the percentage
-and speed the engine reports (yt-dlp's progress template, gallery-dl's output
-mode), under the same `done/total: lane N:` prefix. Nothing is truncated; the
-console wraps long URLs on its own.
+On a terminal the lanes are a live block of one line each, redrawn several
+times a second. A line moves through the URL, then the file with the
+percentage and speed the engine reports, then the verdict:
+
+```
+lane 1: 20/1277  https://example.com/post/123
+lane 2: 21/1277  other.mp4  18.0%  4.1 MiB/s
+lane 3: idle
+lane 4: idle
+```
+
+The per-URL lines still scroll above that block (and into the run log). A
+long line is cut at the console width with `…`; the complete URL is in the
+scrolled line. `--progress-every` only applies when the output is not a
+terminal, where the old timed status lines are used instead.
 
 The console keeps the PowerShell colours: cyan for the banner and menu titles,
 green for `Finished` and successful menu actions, yellow for warnings and

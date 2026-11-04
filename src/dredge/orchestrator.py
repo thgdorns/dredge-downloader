@@ -7,6 +7,7 @@ subprocess and the orchestrator only polls, so a slow engine cannot block it.
 
 from __future__ import annotations
 
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -17,7 +18,8 @@ from . import paint, records, state
 from .archive import append_pending, merge_pending
 from .config import Runtime
 from .destinations import destination_for, free_gb, load_domains
-from .engines import Engines, lane_status
+from .engines import Engines, lane_status, lane_status_tail
+from .lanes import LaneBoard
 from .plan import build_plan, order_by_destination, read_queue
 from .urls import Knowledge, host
 from .worker import Worker
@@ -168,139 +170,172 @@ def run_pass(
     progress_last: dict[int, tuple[str, bool]] = {}
     queued_canon = {knowledge.canon(u) for u in ordered}
 
-    while pending or active:
-        while len(active) < runtime.max_downloads and pending:
-            index = _take_next(pending, ordered, active, knowledge)
-            if index < 0:
-                break
-            url = ordered[index]
-            target = destination_for(url, knowledge, settings)
-            if not settings.dry_run:
-                if target.name in full_dests:
-                    continue        # leave it in queue.txt; this pass skips it
-                last = space_checked.get(target.name, 0.0)
-                if (time.monotonic() - last) >= 120:
-                    space_checked[target.name] = time.monotonic()
-                    free = free_gb(target.path)
-                    if 0 <= free < SPACE_STOP_GB:
-                        full_dests.add(target.name)
-                        message = (
-                            f"[{stamp()}] Stopping: only {free:.0f} GB free on "
-                            f"{target.path.anchor} ({target.name}) - its links stay queued."
-                        )
-                        out(paint.yellow(message))
-                        _log_line(stats.log, message)
-                        continue
-            slot = _free_slot(active, runtime.max_downloads)
-            if slot is None:
-                break
-            lane_log = paths.lane_log(slot)
-            lane_result = paths.lane_result(slot)
-            lane_archive = paths.lane_archive(slot)
-            for stale in (lane_result, lane_archive):
+    board = _make_board(out)
+    if board:
+        board.start()
+    try:
+        while pending or active:
+            while len(active) < runtime.max_downloads and pending:
+                index = _take_next(pending, ordered, active, knowledge)
+                if index < 0:
+                    break
+                url = ordered[index]
+                target = destination_for(url, knowledge, settings)
+                if not settings.dry_run:
+                    if target.name in full_dests:
+                        continue        # leave it in queue.txt; this pass skips it
+                    last = space_checked.get(target.name, 0.0)
+                    if (time.monotonic() - last) >= 120:
+                        space_checked[target.name] = time.monotonic()
+                        free = free_gb(target.path)
+                        if 0 <= free < SPACE_STOP_GB:
+                            full_dests.add(target.name)
+                            message = (
+                                f"[{stamp()}] Stopping: only {free:.0f} GB free on "
+                                f"{target.path.anchor} ({target.name}) - its links stay queued."
+                            )
+                            out(paint.yellow(message))
+                            _log_line(stats.log, message)
+                            continue
+                slot = _free_slot(active, runtime.max_downloads)
+                if slot is None:
+                    break
+                lane_log = paths.lane_log(slot)
                 try:
-                    stale.unlink()
+                    lane_log.write_text("", encoding="utf-8")
                 except OSError:
                     pass
-            worker = Worker(
-                paths, settings, engines, knowledge,
-                filehosts=filehosts,
-                strict_generic=runtime.strict_generic,
-            )
-            thread = threading.Thread(
-                target=_run_worker,
-                args=(worker, url, target.path, target.layout == "flat", target.tpl,
-                      not runtime.archive_check, lane_log, lane_result, lane_archive, slot),
-                daemon=True,
-            )
-            active[slot] = Lane(slot, url, thread, lane_result, lane_archive, index + 1)
-            thread.start()
+                lane_result = paths.lane_result(slot)
+                lane_archive = paths.lane_archive(slot)
+                for stale in (lane_result, lane_archive):
+                    try:
+                        stale.unlink()
+                    except OSError:
+                        pass
+                worker = Worker(
+                    paths, settings, engines, knowledge,
+                    filehosts=filehosts,
+                    strict_generic=runtime.strict_generic,
+                )
+                thread = threading.Thread(
+                    target=_run_worker,
+                    args=(worker, url, target.path, target.layout == "flat", target.tpl,
+                          not runtime.archive_check, lane_log, lane_result, lane_archive, slot),
+                    daemon=True,
+                )
+                active[slot] = Lane(slot, url, thread, lane_result, lane_archive, index + 1)
+                thread.start()
+                if board:
+                    board.set_url(slot, index + 1, len(ordered), url)
 
-        _sleep(0.5, runtime, knowledge)
-        now = time.monotonic()
+            _sleep(0.5, runtime, knowledge, board)
+            now = time.monotonic()
 
-        if settings.progress_every_seconds > 0 and (now - progress_at) >= settings.progress_every_seconds:
-            progress_at = now
-            for slot in sorted(active):
-                name, pct, speed = lane_status(paths.lane_log(slot))
-                key = (name, bool(speed))
-                if not name or progress_last.get(slot) == key:
-                    continue
-                progress_last[slot] = key
-                extra = "  ".join(part for part in (pct, speed) if part)
-                detail = f"{name}  {extra}" if extra else name
-                lane = active[slot]
-                out(paint.darkgray(
-                    f"[{stamp()}] {lane.index}/{len(ordered)}: lane {slot}: {detail}"
-                ))
-
-        if not settings.no_capture and not settings.dry_run:
-            captured = state.read_clip_inbox(paths.clip_inbox)
-            if captured:
-                added = _capture(captured, queued_canon, runtime, knowledge, settings)
-                if added:
-                    records.append_lines(paths.queue, added)
-                    for url in added:
-                        if url not in remaining:
-                            remaining.append(url)
-                            ordered.append(url)
-                            pending.append(len(ordered) - 1)
-
-        finished = [slot for slot, lane in active.items() if not lane.thread.is_alive()]
-        for slot in finished:
-            lane = active.pop(slot)
-            progress_last.pop(slot, None)
-            verdict = _verdict(lane.result)
-            rows = _archive_rows(lane.archive)
-            if rows:
-                _warn_pages(rows, out, stamp)
-                if not settings.dry_run:
-                    pending_rows += append_pending(paths.fold_pending, rows)
-                    if (
-                        pending_rows >= settings.fold_batch_rows
-                        or (time.monotonic() - pending_since) >= settings.fold_batch_seconds
-                    ):
-                        merged_now = merge_pending(
-                            paths.fold_pending, paths.archive,
-                            runtime.seen, runtime.archived, knowledge,
+            if board:
+                board.ensure(range(1, runtime.max_downloads + 1), active)
+                for slot in sorted(active):
+                    name, pct, speed = lane_status_tail(paths.lane_log(slot))
+                    lane = active[slot]
+                    if name:
+                        board.set_progress(
+                            slot, lane.index, len(ordered), name, pct, speed
                         )
-                        runtime.arc_sig = state.archive_signature(paths.archive)
-                        pending_rows = 0
-                        pending_since = time.monotonic()
-                        if merged_now.total:
-                            out(paint.darkgray(f"[{stamp()}] archive: {merged_now.total} row(s) merged."))
+                for slot in range(1, runtime.max_downloads + 1):
+                    if slot not in active:
+                        board.idle(slot)
+                board.refresh()
 
-            if lane.url in remaining:
-                remaining.remove(lane.url)
-            if not settings.dry_run:
-                records.write_lines(paths.queue, remaining)
+            if (
+                board is None
+                and settings.progress_every_seconds > 0
+                and (now - progress_at) >= settings.progress_every_seconds
+            ):
+                progress_at = now
+                for slot in sorted(active):
+                    name, pct, speed = lane_status(paths.lane_log(slot))
+                    key = (name, bool(speed))
+                    if not name or progress_last.get(slot) == key:
+                        continue
+                    progress_last[slot] = key
+                    extra = "  ".join(part for part in (pct, speed) if part)
+                    detail = f"{name}  {extra}" if extra else name
+                    lane = active[slot]
+                    out(paint.darkgray(
+                        f"[{stamp()}] {lane.index}/{len(ordered)}: lane {slot}: {detail}"
+                    ))
 
-            if verdict == "OFFLINE":
-                records.append_lines(paths.offline, [lane.url])
-                stats.offline += 1
-                _mark_failed(runtime, knowledge, lane.url)
-            elif not verdict.startswith("OK|"):
-                records.append_lines(paths.fail, [lane.url])
-                stats.failed += 1
-                _mark_failed(runtime, knowledge, lane.url)
-            else:
-                engine = verdict[3:]
-                stats.ok[engine] = stats.ok.get(engine, 0) + 1
+            if not settings.no_capture and not settings.dry_run:
+                captured = state.read_clip_inbox(paths.clip_inbox)
+                if captured:
+                    added = _capture(captured, queued_canon, runtime, knowledge, settings)
+                    if added:
+                        records.append_lines(paths.queue, added)
+                        for url in added:
+                            if url not in remaining:
+                                remaining.append(url)
+                                ordered.append(url)
+                                pending.append(len(ordered) - 1)
 
-            files = _files_summary(rows)
-            done += 1
-            detail = f"{verdict}{files}  {lane.url}"
-            _log_line(stats.log, f"[{stamp()}] {detail}")
-            out(f"[{stamp()}] {done}/{len(ordered)}: lane {slot}: {detail}")
+            finished = [slot for slot, lane in active.items() if not lane.thread.is_alive()]
+            for slot in finished:
+                lane = active.pop(slot)
+                progress_last.pop(slot, None)
+                verdict = _verdict(lane.result)
+                rows = _archive_rows(lane.archive)
+                if rows:
+                    _warn_pages(rows, out, stamp)
+                    if not settings.dry_run:
+                        pending_rows += append_pending(paths.fold_pending, rows)
+                        if (
+                            pending_rows >= settings.fold_batch_rows
+                            or (time.monotonic() - pending_since) >= settings.fold_batch_seconds
+                        ):
+                            merged_now = merge_pending(
+                                paths.fold_pending, paths.archive,
+                                runtime.seen, runtime.archived, knowledge,
+                            )
+                            runtime.arc_sig = state.archive_signature(paths.archive)
+                            pending_rows = 0
+                            pending_since = time.monotonic()
+                            if merged_now.total:
+                                out(paint.darkgray(f"[{stamp()}] archive: {merged_now.total} row(s) merged."))
 
-    if not settings.dry_run:
-        merged_end = merge_pending(
-            paths.fold_pending, paths.archive, runtime.seen, runtime.archived, knowledge
-        )
-        runtime.arc_sig = state.archive_signature(paths.archive)
-        if merged_end.total:
-            out(paint.darkgray(f"[{stamp()}] archive: {merged_end.total} row(s) merged."))
+                if lane.url in remaining:
+                    remaining.remove(lane.url)
+                if not settings.dry_run:
+                    records.write_lines(paths.queue, remaining)
 
+                if verdict == "OFFLINE":
+                    records.append_lines(paths.offline, [lane.url])
+                    stats.offline += 1
+                    _mark_failed(runtime, knowledge, lane.url)
+                elif not verdict.startswith("OK|"):
+                    records.append_lines(paths.fail, [lane.url])
+                    stats.failed += 1
+                    _mark_failed(runtime, knowledge, lane.url)
+                else:
+                    engine = verdict[3:]
+                    stats.ok[engine] = stats.ok.get(engine, 0) + 1
+
+                files = _files_summary(rows)
+                done += 1
+                detail = f"{verdict}{files}  {lane.url}"
+                _log_line(stats.log, f"[{stamp()}] {detail}")
+                out(f"[{stamp()}] {done}/{len(ordered)}: lane {slot}: {detail}")
+                if board:
+                    board.set_done(slot, lane.index, len(ordered), verdict, files)
+
+        if not settings.dry_run:
+            merged_end = merge_pending(
+                paths.fold_pending, paths.archive, runtime.seen, runtime.archived, knowledge
+            )
+            runtime.arc_sig = state.archive_signature(paths.archive)
+            if merged_end.total:
+                out(paint.darkgray(f"[{stamp()}] archive: {merged_end.total} row(s) merged."))
+
+    finally:
+        if board:
+            board.stop()
     end = _local_now()
     elapsed = end - stats.started
     _log_line(
@@ -311,6 +346,13 @@ def run_pass(
     out(paint.green(f"[{stamp()}] Finished."))
     out(paint.darkgray(f"Run log: {stats.log}"))
     return stats
+
+
+def _make_board(out) -> LaneBoard | None:
+    """A live block only when the default printer is on an interactive console."""
+    if out is say and sys.stdout.isatty():
+        return LaneBoard()
+    return None
 
 
 def _run_worker(
@@ -465,8 +507,19 @@ def _log_line(path: Path | None, line: str) -> None:
         pass
 
 
-def _sleep(seconds: float, runtime: Runtime, knowledge: Knowledge) -> None:
+def _sleep(
+    seconds: float, runtime: Runtime, knowledge: Knowledge, board: LaneBoard | None = None
+) -> None:
     from . import menu
     from .tui import show_dredge_menu
 
-    menu.wait(seconds, lambda: show_dredge_menu(runtime, knowledge))
+    def open_menu() -> None:
+        if board:
+            board.stop()
+        try:
+            show_dredge_menu(runtime, knowledge)
+        finally:
+            if board:
+                board.start()
+
+    menu.wait(seconds, open_menu)

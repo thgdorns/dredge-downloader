@@ -104,3 +104,62 @@ def test_a_pass_records_success_and_failure(tmp_path, monkeypatch):
     text = "\n".join(messages)
     assert "1/2: lane 1: OK|gallery-dl -> clip.mp4  https://example.com/good" in text
     assert "2/2: lane 1: FAILED  https://example.com/bad" in text
+
+
+class FakeBoard:
+    def __init__(self) -> None:
+        self.started = 0
+        self.stopped = 0
+        self.urls: list[tuple[int, str]] = []
+        self.done: list[tuple[int, str]] = []
+        self.refreshes = 0
+
+    def start(self) -> None:
+        self.started += 1
+
+    def stop(self) -> None:
+        self.stopped += 1
+
+    def ensure(self, slots, active=()) -> None:
+        pass
+
+    def set_url(self, slot, index, total, url) -> None:
+        self.urls.append((slot, url))
+
+    def set_progress(self, slot, index, total, name, pct, speed) -> None:
+        pass
+
+    def set_done(self, slot, index, total, verdict, files) -> None:
+        self.done.append((slot, verdict))
+
+    def idle(self, slot) -> None:
+        pass
+
+    def refresh(self) -> None:
+        self.refreshes += 1
+
+
+def test_a_terminal_gets_one_line_per_lane(tmp_path, monkeypatch):
+    paths = Paths(tmp_path)
+    paths.ensure()
+    settings = Settings.load(
+        paths, dest_default=tmp_path / "dest", max_downloads=2,
+        no_capture=True, progress_every_seconds=0,
+    )
+    records.write_lines(paths.queue, ["https://example.com/good"])
+    monkeypatch.setattr(orchestrator, "Worker", FakeWorker)
+    board = FakeBoard()
+    monkeypatch.setattr(orchestrator, "_make_board", lambda out: board)
+
+    runtime = Runtime(paths, settings)
+    stats = run_pass(
+        runtime, Knowledge({}, SiteRule(host="*"), MirrorTable()),
+        orchestrator.Engines(), out=orchestrator.say,
+    )
+
+    assert stats is not None
+    assert board.started == 1
+    assert board.stopped == 1
+    assert board.urls == [(1, "https://example.com/good")]
+    assert board.done == [(1, "OK|gallery-dl")]
+    assert board.refreshes >= 1

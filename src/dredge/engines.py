@@ -239,6 +239,46 @@ def lane_status(lane_log: str | Path) -> tuple[str, str, str]:
         text = p.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return "", "", ""
+    return _parse_lane_text(text)
+
+
+def lane_status_tail(
+    lane_log: str | Path, *, head: int = 4096, tail: int = 8192
+) -> tuple[str, str, str]:
+    """Same as :func:`lane_status`, but only reads the ends of a big lane log."""
+    p = Path(lane_log)
+    if not p.exists():
+        return "", "", ""
+    try:
+        with p.open("rb") as fh:
+            first = fh.read(head)
+            fh.seek(0, os.SEEK_END)
+            size = fh.tell()
+            fh.seek(max(0, size - tail))
+            last = fh.read()
+    except OSError:
+        return "", "", ""
+    return _parse_lane_text((first + b"\n" + last).decode("utf-8", "replace"))
+
+
+def _speed(value: str) -> str:
+    """megatools prints human units (``969.8 KiB/s``), not raw bytes."""
+    m = re.match(r"([\d.]+)\s*([A-Za-z]+)/s", value.strip())
+    if not m:
+        return ""
+    factors = {
+        "b": 1, "byte": 1, "bytes": 1,
+        "kb": 1000, "kib": 1024,
+        "mb": 1000 ** 2, "mib": 1024 ** 2,
+        "gb": 1000 ** 3, "gib": 1024 ** 3,
+    }
+    factor = factors.get(m.group(2).lower())
+    if factor is None:
+        return ""
+    return _rate(str(float(m.group(1)) * factor))
+
+
+def _parse_lane_text(text: str) -> tuple[str, str, str]:
     file = ""
     pct = ""
     speed = ""
@@ -255,6 +295,12 @@ def lane_status(lane_log: str | Path) -> tuple[str, str, str]:
             m = re.search(pattern, line)
             if m:
                 file = m.group(1).strip().strip('"')
+        # megatools: "name.mp4: 27.03% - 256.0 MiB (268435456 bytes) of ... (969.8 KiB/s)"
+        m = re.search(r"^(.+?):\s+(\d+(?:\.\d+)?)%.*?\(([^)]*?/s)\)\s*$", line)
+        if m:
+            file = m.group(1).strip()
+            pct = f"{float(m.group(2)):.1f}%"
+            speed = _speed(m.group(3))
         m = re.search(r"(\d+(?:\.\d+)?%)\s+of", line)
         if m:
             pct = m.group(1)

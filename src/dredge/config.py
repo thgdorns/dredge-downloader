@@ -17,7 +17,7 @@ from pathlib import Path
 # An unavailable/deleted item is not retried: it is gone, not throttled.
 OFFLINE_RE = re.compile(
     r"(?i)(no longer available|unavailable|not found|removed|deleted|404|"
-    r"does not exist|offline)"
+    r"does not exist|offline|private video)"
 )
 
 # Temporary trouble: rate limits, maintenance pages, gateway errors, a bot

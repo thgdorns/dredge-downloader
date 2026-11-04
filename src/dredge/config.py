@@ -81,10 +81,6 @@ class Paths:
         return self.config / "sites.txt"
 
     @property
-    def pornsites(self) -> Path:
-        return self.config / "pornsites.txt"
-
-    @property
     def mirrors(self) -> Path:
         return self.config / "mirrors.txt"
 
@@ -224,10 +220,9 @@ class Settings:
 
     root: Path
     dest_default: Path = Path("E:/Downloads")
-    dest_flat: Path = Path("E:/OTR/porn")
+    dest_flat: Path = Path("E:/Downloads/misc")
     destinations: dict[str, Destination] = field(default_factory=dict)
     default_dest: str = "default"
-    legacy_flat: tuple[str, ...] = ()     # domains from the old pornsites.txt
     dest_fallback: tuple[str, ...] = ("D:", "G:")
     dest_fallback_below_gb: int = 20
 
@@ -318,22 +313,7 @@ class Settings:
 
         values.update({k: v for k, v in overrides.items() if v is not None})
 
-        if paths.pornsites.exists():
-            values.setdefault("legacy_flat", _read_domains(paths.pornsites))
         return cls(root=root, **values)  # type: ignore[arg-type]
-
-
-def _read_domains(path: Path) -> tuple[str, ...]:
-    out: list[str] = []
-    try:
-        text = path.read_text(encoding="utf-8-sig", errors="replace")
-    except OSError:
-        return ()
-    for line in text.splitlines():
-        value = line.split("#", 1)[0].strip().lower()
-        if value:
-            out.append(value.removeprefix("www."))
-    return tuple(out)
 
 
 def _read_conf(path: Path) -> tuple[dict[str, object], dict[str, dict[str, str]]]:
@@ -366,8 +346,6 @@ def _read_conf(path: Path) -> tuple[dict[str, object], dict[str, dict[str, str]]
         if current is not None:
             current[key] = value
             continue
-        if key == "dest_porn":          # legacy name for the flat root
-            key = "dest_flat"
         kind = known.get(key)
         if kind is None:
             continue

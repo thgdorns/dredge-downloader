@@ -159,11 +159,6 @@ def prepare(
         warn.append(f"gallery-dl.conf not found: {paths.gallery_conf}")
     if not paths.cookies.exists():
         warn.append(f"cookies.txt not found: {paths.cookies} (some sites may fail)")
-    if paths.pornsites.exists():
-        warn.append(
-            f"pornsites.txt is deprecated: add `dest=flat` to each host's line in "
-            f"sites.txt and delete {paths.pornsites}"
-        )
     for dest in settings.destinations.values():
         anchor = Path(dest.path).anchor
         if anchor and not Path(anchor).exists():

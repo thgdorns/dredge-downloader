@@ -1,9 +1,7 @@
 """Destination routing: named destinations from ``dredge.conf``.
 
 A site chooses one with ``dest=NAME`` in ``sites.txt``; everything else goes to
-the ``destination_default`` destination. The old ``pornsites.txt`` is read as a
-deprecated alias for the ``flat`` destination, so an existing setup keeps
-working while it migrates to ``dest=flat`` lines.
+the ``destination_default`` destination.
 
 A file-hosting link names a file, not a creator, so it is written into
 ``<destination>/<folder>`` instead of loose in the destination root. The folder
@@ -45,18 +43,11 @@ def load_domains(path: str | Path) -> tuple[str, ...]:
 
 
 def destination_for(url: str, knowledge: Knowledge, settings: Settings) -> Destination:
-    """The named destination for a URL (site rule first, then legacy list)."""
+    """The named destination for a URL (the site rule's dest, else the default)."""
     rule = knowledge.rule(url)
     if rule and rule.dest and rule.dest in settings.destinations:
         return settings.destinations[rule.dest]
 
-    h = host(url)
-    for domain in settings.legacy_flat:
-        if h == domain or h.endswith("." + domain):
-            fallback = settings.destinations.get("flat")
-            if fallback:
-                return fallback
-            break
     return settings.destinations[settings.default_dest]
 
 

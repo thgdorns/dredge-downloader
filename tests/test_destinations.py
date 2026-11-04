@@ -17,15 +17,14 @@ def knowledge() -> Knowledge:
     return Knowledge(rules={}, global_rule=SiteRule(host="*"), mirrors=MirrorTable())
 
 
-def settings_with(destinations=None, default="default", legacy=()):
+def settings_with(destinations=None, default="default"):
     return Settings(
         root=Path("."),
         destinations=destinations or {
             "default": Destination("default", Path("Z:/Downloads")),
-            "flat": Destination("flat", Path("Z:/OTR/porn"), "flat"),
+            "flat": Destination("flat", Path("Z:/misc"), "flat"),
         },
         default_dest=default,
-        legacy_flat=legacy,
     )
 
 
@@ -41,14 +40,6 @@ def test_an_unknown_destination_falls_back_to_the_default():
     knowledge_ = Knowledge(rules=rules, global_rule=SiteRule(host="*"), mirrors=MirrorTable())
     target = destination_for("https://example.com/x", knowledge_, settings_with())
     assert target.name == "default"
-
-
-def test_legacy_pornsites_domains_route_to_flat():
-    settings = settings_with(legacy=("old.example",))
-    knowledge_ = knowledge()
-    assert destination_for("https://old.example/x", knowledge_, settings).name == "flat"
-    assert destination_for("https://sub.old.example/x", knowledge_, settings).name == "flat"
-    assert destination_for("https://other.example/x", knowledge_, settings).name == "default"
 
 
 def test_folder_link_uses_the_collection_name():
@@ -106,12 +97,12 @@ def fallback_settings(tmp_path, **overrides):
     values = {
         "destinations": {
             "default": Destination("default", Path("Z:/Downloads")),
-            "flat": Destination("flat", Path("Z:/OTR/porn"), "flat"),
+            "flat": Destination("flat", Path("Z:/misc"), "flat"),
             "music": Destination("music", Path("Y:/Music")),
         },
         "default_dest": "default",
         "dest_default": Path("Z:/Downloads"),
-        "dest_flat": Path("Z:/OTR/porn"),
+        "dest_flat": Path("Z:/misc"),
         "dest_fallback": ("D:", "G:"),
         "dest_fallback_below_gb": 20,
         **overrides,
@@ -128,7 +119,7 @@ def test_fallback_moves_both_roots_when_the_primary_is_gone(tmp_path, monkeypatc
     out = destinations.apply_fallback(settings)
 
     assert out.destinations["default"].path == Path("D:/Downloads")
-    assert out.destinations["flat"].path == Path("D:/OTR/porn")
+    assert out.destinations["flat"].path == Path("D:/misc")
     assert out.destinations["music"].path == Path("Y:/Music")
     assert "not mounted" in out.fallback_note
 
@@ -141,7 +132,7 @@ def test_a_full_primary_moves_to_the_first_drive_above_the_bar(tmp_path, monkeyp
 
     out = destinations.apply_fallback(settings)
 
-    assert out.destinations["flat"].path == Path("G:/OTR/porn")
+    assert out.destinations["flat"].path == Path("G:/misc")
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="drive letters are a Windows concept")

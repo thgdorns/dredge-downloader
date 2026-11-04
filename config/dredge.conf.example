@@ -18,7 +18,7 @@ path = E:\Downloads
 layout = creator
 
 [dest:flat]
-path = E:\OTR\porn
+path = E:\Downloads\misc
 layout = flat
 
 destination_default = default
@@ -31,9 +31,7 @@ dest_fallback_below_gb = 20
 
 # Legacy keys, still read when there are no [dest:...] sections:
 #   dest_default = E:\Downloads
-#   dest_flat    = E:\OTR\porn      (the flat root; dest_porn is the old name)
-# The old config/pornsites.txt is also still read, as `dest=flat` for its hosts.
-# It is deprecated: put `dest=flat` on the host's line in sites.txt instead.
+#   dest_flat    = E:\Downloads\misc
 
 # --- naming -----------------------------------------------------------------
 # yt-dlp templates. Per-site templates are tpl= lines in config/sites.txt;

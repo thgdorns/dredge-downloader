@@ -82,8 +82,7 @@ they do not get forgotten.
 Only gallery-dl reports are listed. yt-dlp forbids AI interaction of any kind
 (see [CONTRIBUTING](../CONTRIBUTING.md#upstream-contribution-policy)), so this
 project does not open or track anything there; the yt-dlp workarounds are
-verified by behaviour (extractor name, manual measurements) instead of by an
-issue state.
+verified by manual measurements instead of by an issue state.
 
 ## Scheduled runs
 

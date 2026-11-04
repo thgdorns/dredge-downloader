@@ -58,10 +58,10 @@ def test_extractor_retires_when_the_site_extractor_matches():
          "expect_not": "generic"}
     )
     verdict, note = watch.check_extractor(
-        check, "yt-dlp", runner(lambda a: (0, "YouPorn\n"))
+        check, "yt-dlp", runner(lambda a: (0, "ExampleSite\n"))
     )
     assert verdict == watch.RETIRE
-    assert "youporn" in note
+    assert "examplesite" in note
 
 
 def test_extractor_keeps_while_it_falls_back_to_generic():

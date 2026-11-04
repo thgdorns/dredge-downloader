@@ -10,11 +10,11 @@ def test_defaults_match_the_legacy_script(tmp_path):
     assert settings.progress_every_seconds == 15
     assert settings.cookies_browser == "floorp"
     assert settings.dest_default == Path("E:/Downloads")
-    assert settings.dest_flat == Path("E:/OTR/porn")
+    assert settings.dest_flat == Path("E:/Downloads/misc")
 
 
 def test_conf_file_overrides_defaults(tmp_path):
-    absolute = Path(tmp_path.anchor) / "porn"
+    absolute = Path(tmp_path.anchor) / "misc"
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "dredge.conf").write_text(
         "# machine-specific values\nmax-downloads = 7\ntpl_flat = %(id)s.%(ext)s\n"
@@ -75,11 +75,3 @@ def test_named_destinations_from_sections(tmp_path):
     assert settings.destinations["flat"].layout == "flat"
     assert settings.destinations["flat"].tpl == "%(id)s.%(ext)s"
 
-
-def test_legacy_pornsites_domains_are_loaded(tmp_path):
-    (tmp_path / "config").mkdir()
-    (tmp_path / "config" / "pornsites.txt").write_text(
-        "# old list\na.example\nwww.b.example\n", encoding="utf-8"
-    )
-    settings = Settings.load(Paths(tmp_path))
-    assert set(settings.legacy_flat) == {"a.example", "b.example"}

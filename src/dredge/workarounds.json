@@ -41,11 +41,9 @@
       "issue": "",
       "checks": [
         {
-          "kind": "extractor",
-          "engine": "yt-dlp",
-          "url": "https://br.youporn.com/watch/293578801",
-          "expect_not": "generic",
-          "timeout": 120
+          "kind": "manual",
+          "recheck_after_days": 365,
+          "last_verified": "2026-11-04"
         }
       ]
     },

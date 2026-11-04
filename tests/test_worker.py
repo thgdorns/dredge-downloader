@@ -115,6 +115,24 @@ def test_a_dead_post_is_offline_not_failed(tmp_path, monkeypatch):
     assert verdict == "OFFLINE"
 
 
+def test_a_maintenance_page_is_failed_not_offline(tmp_path, monkeypatch):
+    text = "[gallery-dl][error] HttpError: 503 Service Unavailable (down for maintenance)"
+    verdict, _ = run(tmp_path, monkeypatch, {
+        "gdl": {"rc": 1, "text": text},
+        "yt": {"rc": 1, "text": text},
+    })
+    assert verdict == "FAILED"
+
+
+def test_a_cloudflare_challenge_is_failed_not_offline(tmp_path, monkeypatch):
+    text = "[gallery-dl][error] 403 Forbidden: Just a moment..."
+    verdict, _ = run(tmp_path, monkeypatch, {
+        "gdl": {"rc": 1, "text": text},
+        "yt": {"rc": 1, "text": text},
+    })
+    assert verdict == "FAILED"
+
+
 def test_a_site_min_rule_drops_the_file_and_its_row(tmp_path, monkeypatch):
     rule = parse_rule("example.com min=1M")
     verdict, root = run(

@@ -20,10 +20,16 @@ OFFLINE_RE = re.compile(
     r"does not exist|offline)"
 )
 
-# Rate limiting is temporary and must never be classified as a dead page.
+# Temporary trouble: rate limits, maintenance pages, gateway errors, a bot
+# challenge. The URL must stay retryable and must never be filed as a dead post.
+# Checked before OFFLINE_RE, which would otherwise treat "Service Unavailable"
+# (or a 503 page) as "unavailable" and park the link forever.
 RATE_RE = re.compile(
     r"(?i)(429|too many requests|rate limit|too many attempts|try again later|"
-    r"slow down)"
+    r"slow down|\b50[0234]\b|service unavailable|temporarily unavailable|"
+    r"down for maintenance|under maintenance|maintenance|bad gateway|"
+    r"gateway time-?out|connection (?:reset|refused|aborted)|timed out|"
+    r"timeout|cloudflare|just a moment|checking your browser)"
 )
 
 MEDIA_EXT = (
@@ -235,6 +241,7 @@ class Settings:
     tpl_generic: str = "%(title).200s.%(ext)s"
     gdl_dir: str = (
         "{tag_string_artist|tags_artist[0]|uploader|uploader_name|channel|artist|"
+        "creator[full_name]|creator[vanity]|creator[name]|creator[username]|"
         "creator|username|user[name]|author[name]|author|account[username]|category}"
     )
 

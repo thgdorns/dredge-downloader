@@ -40,7 +40,7 @@ tpl_default = %(uploader,channel,creator,artist,extractor|NA)s/%(title).200s.%(e
 tpl_flat = %(title).200s.%(ext)s
 tpl_generic = %(title).200s.%(ext)s
 # gallery-dl folder rule (alternatives syntax: first non-empty key wins).
-gdl_dir = {tag_string_artist|tags_artist[0]|uploader|uploader_name|channel|artist|creator|username|user[name]|author[name]|author|account[username]|category}
+gdl_dir = {tag_string_artist|tags_artist[0]|uploader|uploader_name|channel|artist|creator[full_name]|creator[vanity]|creator[name]|creator[username]|creator|username|user[name]|author[name]|author|account[username]|category}
 
 # --- engines ----------------------------------------------------------------
 # '' = auto-detect (winget Links folder, then PATH, then the winget package

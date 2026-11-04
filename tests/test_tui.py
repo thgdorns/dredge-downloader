@@ -80,6 +80,7 @@ def test_checks_menu_reports_the_current_switches(tmp_path, monkeypatch):
     text = "\n".join(shown)
     assert "records check   [ON]" in text
     assert "retry failed" in text
+    assert "retry skipped" in text
     assert "skip failed" in text
     assert "lanes" in text
     assert "pause/resume" in text
@@ -88,7 +89,7 @@ def test_checks_menu_reports_the_current_switches(tmp_path, monkeypatch):
 
 def test_strict_mode_option_toggles(tmp_path, monkeypatch):
     _, runtime, knowledge = setup(tmp_path)
-    answers = iter(["7"])
+    answers = iter(["8"])
     monkeypatch.setattr(tui.menu, "select", lambda *a, **k: next(answers, None))
 
     tui.show_checks_menu(runtime, knowledge)
@@ -98,10 +99,35 @@ def test_strict_mode_option_toggles(tmp_path, monkeypatch):
 
 def test_lane_count_option_asks_for_a_number(tmp_path, monkeypatch):
     _, runtime, knowledge = setup(tmp_path)
-    answers = iter(["5", "7"])
+    answers = iter(["6", "7"])
     monkeypatch.setattr(tui.menu, "select", lambda *a, **k: next(answers, None))
     monkeypatch.setattr(tui.menu, "prompt_line", lambda prompt: next(answers, ""))
 
     tui.show_checks_menu(runtime, knowledge)
 
     assert runtime.max_downloads == 7
+
+
+def test_retry_skipped_moves_skip_txt_into_the_queue(tmp_path):
+    paths, runtime, knowledge = setup(tmp_path)
+
+    tui.retry_skipped(runtime, knowledge)
+
+    assert records.read_lines(paths.queue) == [
+        "https://example.com/queued",
+        "https://example.com/skip",
+    ]
+    assert records.read_lines(paths.skip) == []
+    assert "example.com/skip" not in runtime.skip_always
+
+
+def test_retry_skipped_does_not_queue_a_line_twice(tmp_path):
+    paths, runtime, knowledge = setup(tmp_path)
+    records.write_lines(paths.queue, [
+        "https://example.com/queued",
+        "https://example.com/skip",
+    ])
+
+    tui.retry_skipped(runtime, knowledge)
+
+    assert records.read_lines(paths.queue).count("https://example.com/skip") == 1

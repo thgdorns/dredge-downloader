@@ -29,6 +29,7 @@ def show_checks_menu(
     while True:
         paused = runtime.paths.paused.exists()
         fail_count = len(records.read_lines(runtime.paths.fail))
+        skip_count = len(records.read_lines(runtime.paths.skip))
         items = [
             menu.MenuItem(
                 "1",
@@ -38,18 +39,21 @@ def show_checks_menu(
             menu.MenuItem(
                 "2", f"retry failed    move fail.txt back into the queue ({fail_count} link(s))"
             ),
-            menu.MenuItem("3", "skip failed     move fail.txt into skip.txt (never retried)"),
-            menu.MenuItem("4", "probe files     copy links; queue each picture/attachment URL"),
             menu.MenuItem(
-                "5", f"lanes           [{runtime.max_downloads}]  concurrent downloads "
+                "3", f"retry skipped   move skip.txt back into the queue ({skip_count} link(s))"
+            ),
+            menu.MenuItem("4", "skip failed     move fail.txt into skip.txt (never retried)"),
+            menu.MenuItem("5", "probe files     copy links; queue each picture/attachment URL"),
+            menu.MenuItem(
+                "6", f"lanes           [{runtime.max_downloads}]  concurrent downloads "
                      "(asks for a number)"
             ),
             menu.MenuItem(
-                "6", f"downloads       [{'PAUSED' if paused else 'running'}]  "
+                "7", f"downloads       [{'PAUSED' if paused else 'running'}]  "
                      "pause/resume (queue.txt waits)"
             ),
             menu.MenuItem(
-                "7", f"strict mode     [{'ON' if runtime.strict_generic else 'OFF'}]  "
+                "8", f"strict mode     [{'ON' if runtime.strict_generic else 'OFF'}]  "
                      "the generic tier only runs on hosts in generic-sites.txt"
             ),
         ]
@@ -67,13 +71,15 @@ def show_checks_menu(
         elif choice == "2":
             retry_failed(runtime, knowledge)
         elif choice == "3":
-            skip_failed(runtime, knowledge)
+            retry_skipped(runtime, knowledge)
         elif choice == "4":
+            skip_failed(runtime, knowledge)
+        elif choice == "5":
             if probe_files:
                 probe_files()
             else:
                 _say("probe mode needs the engines - run dredge with --probe-files.")
-        elif choice == "5":
+        elif choice == "6":
             _say(f"lanes now: {runtime.max_downloads}")
             answer = menu.prompt_line("    concurrent downloads (1-16, Enter keeps it) ").strip()
             if not answer:
@@ -88,7 +94,7 @@ def show_checks_menu(
                     _say(f"lanes set to {value} - the next free slot uses it.")
                 else:
                     _say("lanes must be a number from 1 to 16.")
-        elif choice == "6":
+        elif choice == "7":
             pause = runtime.paths.paused
             if pause.exists():
                 try:
@@ -101,7 +107,7 @@ def show_checks_menu(
                 pause.parent.mkdir(parents=True, exist_ok=True)
                 pause.touch()
                 _say("downloads paused - queue.txt waits until you resume.")
-        elif choice == "7":
+        elif choice == "8":
             runtime.strict_generic = not runtime.strict_generic
             if runtime.strict_generic:
                 _say("strict mode ON - a yt-dlp tier that falls back to the generic "
@@ -157,7 +163,7 @@ def show_dredge_menu(
 ) -> None:
     items = [
         menu.MenuItem(
-            "1", "checks    records check, retry failed, skip failed, probe files, lanes, pause"
+            "1", "checks    records check, retry failed/skipped, skip failed, probe files, lanes, pause"
         ),
         menu.MenuItem("2", "files     downloads.tsv, queue.txt, fail.txt, offline.txt, skip.txt"),
     ]
@@ -169,6 +175,32 @@ def show_dredge_menu(
             show_checks_menu(runtime, knowledge, probe_files=probe_files)
         elif choice == "2":
             show_files_menu(runtime)
+
+
+def retry_skipped(runtime: Runtime, knowledge: Knowledge) -> None:
+    """Move every skip.txt URL back into the queue and empty skip.txt."""
+    paths = runtime.paths
+    if not paths.skip.exists():
+        _say("skip.txt is missing.")
+        return
+    skipped = records.read_lines(paths.skip)
+    if not skipped:
+        _say("skip.txt has nothing to retry.")
+        return
+    queued = set(records.read_lines(paths.queue))
+    add = [url for url in skipped if url not in queued]
+    try:
+        # queue first, skip.txt second: if the queue cannot be written nothing is lost
+        if add:
+            records.append_lines(paths.queue, add)
+        records.write_lines(paths.skip, [])
+    except OSError as exc:
+        _say(f"could not update the records: {exc}")
+        return
+    state.update_failed_set(runtime, knowledge)
+    _say(f"{len(add)} link(s) moved from skip.txt into the queue.")
+    if len(skipped) > len(add):
+        _say(f"{len(skipped) - len(add)} were already queued.")
 
 
 def retry_failed(runtime: Runtime, knowledge: Knowledge) -> None:

@@ -99,8 +99,8 @@ copy config\gallery-dl.conf.example config\gallery-dl.conf
 | `--root DIR` | folder holding `config/`, `data/`, `logs/` (default: cwd) |
 
 Press **M** while it runs to open the menu. Inside: records check on/off, retry
-failed, skip failed, probe files, lane count, pause/resume, strict mode, and
-shortcuts to the record files. **Esc** goes back.
+failed, retry skipped, skip failed, probe files, lane count, pause/resume,
+strict mode, and shortcuts to the record files. **Esc** goes back.
 
 Probe mode runs until **Esc** (or Ctrl+C) and leaves the queue paused so the
 list can be pruned first; it ends by resuming the downloads. With a piped

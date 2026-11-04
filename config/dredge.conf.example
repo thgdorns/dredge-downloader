@@ -1,0 +1,47 @@
+# Machine-specific settings. Everything here is optional: the defaults are the
+# ones the script has always used, so an empty file (or no file) still runs.
+#
+#   key = value        # '#' starts a comment, blanks are ignored
+#
+# Paths may be absolute or relative to the folder holding config/, data/ and
+# logs/ (the folder you pass with --root, or the current directory).
+
+# --- destinations -----------------------------------------------------------
+# Adult domains in config/pornsites.txt go to dest_porn (flat); everything else
+# goes to dest_default (one folder per creator). Both are moved to one of the
+# fallback drives when the primary is missing or has less than
+# dest_fallback_below_gb GB free - only the drive letter changes.
+dest_default = E:\Downloads
+dest_porn = E:\OTR\porn
+dest_fallback = D:,G:
+dest_fallback_below_gb = 20
+
+# --- naming -----------------------------------------------------------------
+# yt-dlp templates. Per-site templates are tpl= lines in config/sites.txt.
+tpl_default = %(uploader,channel,creator,artist,extractor|NA)s/%(title).200s.%(ext)s
+tpl_porn = %(title).200s.%(ext)s
+tpl_generic = %(title).200s.%(ext)s
+# gallery-dl folder rule (alternatives syntax: first non-empty key wins).
+gdl_dir = {tag_string_artist|tags_artist[0]|uploader|uploader_name|channel|artist|creator|username|user[name]|author[name]|author|account[username]|category}
+
+# --- engines ----------------------------------------------------------------
+# '' = auto-detect (winget Links folder, then PATH, then the winget package
+# folder). A file-host engine is a folder; the exe is searched for inside it, so
+# a version bump needs no edit.
+max_downloads = 4
+yt = 
+gdl = 
+megatools = D:\Warez\megatools
+mediafire = D:\Warez\mediafire_rs
+
+# --- login cookies ----------------------------------------------------------
+# Browser to export cookies from on startup ('' = never refresh). Firefox-family
+# browsers can be open; Chromium-based ones lock their cookie database.
+cookies_browser = floorp
+
+# --- runtime ----------------------------------------------------------------
+idle_seconds = 3
+progress_every_seconds = 15
+min_video_bytes = 102400
+fold_batch_rows = 25
+fold_batch_seconds = 60

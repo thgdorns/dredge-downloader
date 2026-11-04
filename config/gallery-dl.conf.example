@@ -1,0 +1,14 @@
+{
+  "$schema": "https://raw.githubusercontent.com/mikf/gallery-dl/master/docs/gallery-dl.conf",
+  "path-restrict": "windows",
+  "output": {
+    "stdout": {"encoding": "utf-8", "errors": "replace"},
+    "stderr": {"encoding": "utf-8", "errors": "replace"}
+  },
+  "extractor": {
+    "archive": "data/state/gallery-dl.sqlite3",
+    "retries": 4,
+    "timeout": 30,
+    "directory": ["{uploader|uploader_name|channel|artist|creator|username|user[name]|author[name]|account[username]|category}"]
+  }
+}

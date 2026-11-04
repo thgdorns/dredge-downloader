@@ -1,0 +1,12 @@
+# yt-dlp tier-3 config: all extractors, native downloader.
+--encoding utf-8
+--ies all
+--no-playlist
+-f b/bv*+ba
+--windows-filenames
+--downloader native
+--download-archive data/state/yt-dlp-archive.txt
+--socket-timeout 30
+--retries 4
+--no-warnings
+# --cookies config/cookies.txt

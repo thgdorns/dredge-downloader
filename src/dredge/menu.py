@@ -1,0 +1,100 @@
+"""Console menu, plain-input fallback, and the non-blocking menu key.
+
+prompt_toolkit keeps the menu in the existing console (no new window) and gives
+key bindings and Esc handling on Windows and Linux. When it is not installed
+(contributor machines running only the tests) the menu falls back to ``input()``.
+"""
+
+from __future__ import annotations
+
+import sys
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class MenuItem:
+    key: str
+    label: str
+
+
+def render(title: str, items: Sequence[MenuItem], close: str = "close") -> str:
+    lines = [title, ""]
+    for item in items:
+        lines.append(f"   {item.key}) {item.label}")
+    lines.extend(["", f"   Esc) {close}"])
+    return "\n".join(lines)
+
+
+def prompt_line(prompt: str) -> str:
+    """Read one line; ``""`` on EOF, so redirected input cannot crash a menu."""
+    try:
+        return input(prompt)
+    except EOFError:
+        return ""
+
+
+def select(title: str, items: Sequence[MenuItem], close: str = "close") -> str | None:
+    """Show the menu and return the chosen key, or ``None`` for Esc/close."""
+    try:
+        from prompt_toolkit import Application
+        from prompt_toolkit.key_binding import KeyBindings
+        from prompt_toolkit.layout import Layout, Window
+        from prompt_toolkit.layout.controls import FormattedTextControl
+    except ImportError:
+        print(render(title, items, close))
+        choice = prompt_line("choice: ").strip().lower()
+        return None if choice in ("", "esc", "q") else choice
+
+    bindings = KeyBindings()
+
+    @bindings.add("escape")
+    def _close(event):
+        event.app.exit(result=None)
+
+    for item in items:
+
+        @bindings.add(item.key)
+        def _choose(event, key=item.key):
+            event.app.exit(result=key)
+
+    control = FormattedTextControl(lambda: render(title, items, close))
+    app = Application(
+        layout=Layout(Window(control)),
+        key_bindings=bindings,
+        full_screen=False,
+    )
+    return app.run()
+
+
+def menu_key() -> str | None:
+    """A key pressed since the last call, without blocking (Windows console)."""
+    if sys.platform != "win32":
+        return None
+    try:
+        import msvcrt
+    except ImportError:
+        return None
+    key = None
+    try:
+        while msvcrt.kbhit():
+            ch = msvcrt.getwch()
+            if ch in ("m", "M"):
+                key = ch
+    except OSError:
+        return None
+    return key
+
+
+def wait(seconds: float, on_menu: Callable[[], None] | None = None) -> None:
+    """Sleep that stays responsive to the ``M`` menu key."""
+    import time
+
+    end = time.monotonic() + seconds
+    while True:
+        if on_menu and menu_key():
+            on_menu()
+        left = end - time.monotonic()
+        if left <= 0:
+            return
+        time.sleep(min(0.25, left))

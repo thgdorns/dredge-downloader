@@ -1,0 +1,212 @@
+"""The menus: checks, files, and the top level.
+
+Text and order match the legacy console menu, including the lane prompt and the
+records-check wording, so the same muscle memory works in both implementations.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+from collections.abc import Callable
+from pathlib import Path
+
+from . import menu, records, state
+from .config import Runtime
+from .urls import Knowledge
+
+
+def _say(message: str) -> None:
+    print(f"    {message}")
+
+
+def show_checks_menu(
+    runtime: Runtime,
+    knowledge: Knowledge,
+    *,
+    probe_files: Callable[[], None] | None = None,
+) -> None:
+    while True:
+        paused = runtime.paths.paused.exists()
+        fail_count = len(records.read_lines(runtime.paths.fail))
+        items = [
+            menu.MenuItem(
+                "1",
+                f"records check   [{'ON' if runtime.archive_check else 'OFF'}]  "
+                "skip anything already downloaded, failed or skipped",
+            ),
+            menu.MenuItem(
+                "2", f"retry failed    move fail.txt back into the queue ({fail_count} link(s))"
+            ),
+            menu.MenuItem("3", "skip failed     move fail.txt into skip.txt (never retried)"),
+            menu.MenuItem("4", "probe files     copy links; queue each picture/attachment URL"),
+            menu.MenuItem(
+                "5", f"lanes           [{runtime.max_downloads}]  concurrent downloads "
+                     "(asks for a number)"
+            ),
+            menu.MenuItem(
+                "6", f"downloads       [{'PAUSED' if paused else 'running'}]  "
+                     "pause/resume (queue.txt waits)"
+            ),
+        ]
+        choice = menu.select("checks", items, close="back")
+        if choice is None:
+            return
+        if choice == "1":
+            runtime.archive_check = not runtime.archive_check
+            if runtime.archive_check:
+                _say("records check ON - downloads.tsv, fail.txt, skip.txt and the engine "
+                     "archives are honoured.")
+            else:
+                _say("records check OFF - every previous record is ignored: queued links are "
+                     "fetched again from scratch.")
+        elif choice == "2":
+            retry_failed(runtime, knowledge)
+        elif choice == "3":
+            skip_failed(runtime, knowledge)
+        elif choice == "4":
+            if probe_files:
+                probe_files()
+            else:
+                _say("probe mode is not ported yet - use the legacy script for this one.")
+        elif choice == "5":
+            _say(f"lanes now: {runtime.max_downloads}")
+            answer = menu.prompt_line("    concurrent downloads (1-16, Enter keeps it) ").strip()
+            if not answer:
+                _say("lanes unchanged.")
+            else:
+                try:
+                    value = int(answer)
+                except ValueError:
+                    value = 0
+                if 1 <= value <= 16:
+                    runtime.max_downloads = value
+                    _say(f"lanes set to {value} - the next free slot uses it.")
+                else:
+                    _say("lanes must be a number from 1 to 16.")
+        elif choice == "6":
+            pause = runtime.paths.paused
+            if pause.exists():
+                try:
+                    pause.unlink()
+                except OSError:
+                    pass
+                state.update_failed_set(runtime, knowledge)
+                _say("downloads resumed - queue.txt is live again.")
+            else:
+                pause.parent.mkdir(parents=True, exist_ok=True)
+                pause.touch()
+                _say("downloads paused - queue.txt waits until you resume.")
+
+
+def show_files_menu(runtime: Runtime) -> None:
+    paths = runtime.paths
+    files = [
+        menu.MenuItem("1", "downloads.tsv   what was downloaded (the archive)"),
+        menu.MenuItem("2", "queue.txt       links waiting"),
+        menu.MenuItem("3", "fail.txt        tried, did not work"),
+        menu.MenuItem("4", "offline.txt     the post is gone"),
+        menu.MenuItem("5", "skip.txt        never download these again"),
+    ]
+    mapping = {
+        "1": paths.archive, "2": paths.queue, "3": paths.fail,
+        "4": paths.offline, "5": paths.skip,
+    }
+    while True:
+        choice = menu.select("files", files, close="back")
+        if choice is None:
+            return
+        target = mapping.get(choice)
+        if target:
+            open_record(target)
+
+
+def open_record(path: Path) -> None:
+    if not path.exists():
+        _say(f"missing: {path}")
+        return
+    try:
+        if sys.platform == "win32":
+            # a .tsv has no default handler on a normal Windows box
+            if path.suffix.lower() == ".tsv":
+                os.startfile(str(path), "open")  # type: ignore[attr-defined]
+            else:
+                os.startfile(str(path))  # type: ignore[attr-defined]
+        else:
+            print(f"    {path}")
+    except OSError:
+        _say("could not open it")
+
+
+def show_dredge_menu(
+    runtime: Runtime,
+    knowledge: Knowledge,
+    *,
+    probe_files: Callable[[], None] | None = None,
+) -> None:
+    items = [
+        menu.MenuItem(
+            "1", "checks    records check, retry failed, skip failed, probe files, lanes, pause"
+        ),
+        menu.MenuItem("2", "files     downloads.tsv, queue.txt, fail.txt, offline.txt, skip.txt"),
+    ]
+    while True:
+        choice = menu.select("dredge menu", items)
+        if choice is None:
+            return
+        if choice == "1":
+            show_checks_menu(runtime, knowledge, probe_files=probe_files)
+        elif choice == "2":
+            show_files_menu(runtime)
+
+
+def retry_failed(runtime: Runtime, knowledge: Knowledge) -> None:
+    """Move every fail.txt URL back into the queue and empty fail.txt."""
+    paths = runtime.paths
+    if not paths.fail.exists():
+        _say("fail.txt is missing.")
+        return
+    failed = records.read_lines(paths.fail)
+    if not failed:
+        _say("fail.txt has nothing to retry.")
+        return
+    queued = set(records.read_lines(paths.queue))
+    add = [url for url in failed if url not in queued]
+    try:
+        # queue first, fail.txt second: if the queue cannot be written nothing is lost
+        if add:
+            records.append_lines(paths.queue, add)
+        records.write_lines(paths.fail, [])
+    except OSError as exc:
+        _say(f"could not update the records: {exc}")
+        return
+    state.update_failed_set(runtime, knowledge)
+    _say(f"{len(add)} link(s) moved from fail.txt into the queue.")
+    if len(failed) > len(add):
+        _say(f"{len(failed) - len(add)} were already queued.")
+
+
+def skip_failed(runtime: Runtime, knowledge: Knowledge) -> None:
+    """Move every fail.txt URL into skip.txt: never retried again."""
+    paths = runtime.paths
+    if not paths.fail.exists():
+        _say("fail.txt is missing.")
+        return
+    failed = records.read_lines(paths.fail)
+    if not failed:
+        _say("fail.txt has nothing to skip.")
+        return
+    known = set(records.read_lines(paths.skip))
+    add = [url for url in failed if url not in known]
+    try:
+        # skip.txt first, fail.txt second: if the write fails nothing is lost
+        if add:
+            records.append_lines(paths.skip, add)
+        records.write_lines(paths.fail, [])
+    except OSError as exc:
+        _say(f"could not update the records: {exc}")
+        return
+    state.update_failed_set(runtime, knowledge)
+    _say(f"{len(add)} link(s) moved from fail.txt to skip.txt (never retried).")
+    if len(failed) > len(add):
+        _say(f"{len(failed) - len(add)} were already in skip.txt.")

@@ -1,0 +1,310 @@
+"""Command line entry point and the pass loop.
+
+Flags mirror the legacy PowerShell script, so a shortcut that ran
+``dredge.ps1 -Once -DryRun`` runs ``dredge --once --dry-run`` here.
+
+With an empty queue dredge waits instead of exiting: ``queue.txt`` and the
+clipboard inbox are polled and the next pass starts by itself. ``--once``
+restores the take-the-queue-once-and-leave behaviour.
+"""
+
+from __future__ import annotations
+
+import argparse
+import shutil
+import sys
+import time
+from pathlib import Path
+
+from . import __version__, cookies, menu, state
+from .config import Paths, Runtime, Settings, write_gallery_runtime
+from .destinations import apply_fallback, load_domains
+from .engines import Engines, run
+from .orchestrator import run_pass
+from .tui import show_dredge_menu
+from .urls import Knowledge
+from .worker import Worker
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="dredge",
+        description=(
+            "Queue and archive downloads from yt-dlp, gallery-dl and file hosts. "
+            "No site is named in the code: per-site knowledge lives in config/sites.txt."
+        ),
+    )
+    parser.add_argument("--root", default=None, help="folder holding config/, data/, logs/")
+    parser.add_argument("--once", action="store_true",
+                        help="take the queue once and exit (default: stay and wait for links)")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="probe only (--simulate); never writes records")
+    parser.add_argument("--menu", action="store_true", help="open the console menu at startup")
+    parser.add_argument("--retry-failed", action="store_true",
+                        help="try URLs already in fail.txt/offline.txt again")
+    parser.add_argument("--probe", action="store_true",
+                        help="probe mode: list copied creator pages and queue their items")
+    parser.add_argument("--probe-files", action="store_true",
+                        help="probe mode, file level: queue each picture/attachment URL")
+    parser.add_argument("--max-downloads", type=int, default=None, metavar="N",
+                        help="concurrent downloads (default: config or 4)")
+    parser.add_argument("--idle-seconds", type=int, default=None, metavar="N",
+                        help="how often to look for new links while idle (default 3)")
+    parser.add_argument("--progress-every", type=int, default=None, metavar="N",
+                        help="seconds between lane status lines (0 = off, default 15)")
+    parser.add_argument("--min-video-bytes", type=int, default=None, metavar="N",
+                        help="a 'video' smaller than this is an error page (default 102400)")
+    parser.add_argument("--no-capture", action="store_true", help="do not watch the clipboard")
+    parser.add_argument("--no-update", action="store_true", help="skip the engine self-update")
+    parser.add_argument("--no-cookies", action="store_true", help="skip the cookie refresh")
+    parser.add_argument("--no-prompt", action="store_true",
+                        help="skip the 'Press Enter to close' prompt (for scripting)")
+    parser.add_argument("--strict-generic", action="store_true",
+                        help="only run the yt-dlp generic tier on hosts in generic-sites.txt")
+    parser.add_argument("--ignore-records", action="store_true",
+                        help="ignore downloads.tsv, fail/skip lists and the engine archives")
+    parser.add_argument("--version", action="version", version=__version__)
+
+    worker = parser.add_argument_group("worker (internal - one URL)")
+    worker.add_argument("--worker", action="store_true", help="download one URL and exit")
+    worker.add_argument("--url", default="", help="URL for --worker")
+    worker.add_argument("--dest", default="", help="destination root for --worker")
+    worker.add_argument("--is-porn", action="store_true", help="--dest is the adult root")
+    worker.add_argument("--lane-log", default="", help="lane log file")
+    worker.add_argument("--result", default="", help="file that receives the verdict")
+    worker.add_argument("--archive", default="", help="file that receives the archive rows")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    paths = Paths.from_root(args.root)
+    settings = Settings.load(
+        paths,
+        dry_run=True if args.dry_run else None,
+        once=True if args.once else None,
+        max_downloads=args.max_downloads,
+        idle_seconds=args.idle_seconds,
+        progress_every_seconds=args.progress_every,
+        min_video_bytes=args.min_video_bytes,
+        no_capture=True if args.no_capture else None,
+        retry_failed=True if args.retry_failed else None,
+        strict_generic=True if args.strict_generic else None,
+        ignore_records=True if args.ignore_records else None,
+        no_prompt=True if args.no_prompt else None,
+    )
+    knowledge = Knowledge.load(paths.config)
+    engines = Engines.discover(settings)
+
+    if args.worker:
+        return run_worker(paths, settings, knowledge, engines, args)
+
+    settings = apply_fallback(settings)
+    if settings.fallback_note:
+        print(f"[{_clock()}] {settings.fallback_note} ({settings.dest_porn}).")
+
+    try:
+        prepare(paths, settings, knowledge, engines, args)
+    except SystemExit as exc:
+        return int(exc.code or 0)
+
+    runtime = Runtime(paths, settings)
+
+    if args.probe or args.probe_files:
+        print(
+            "probe mode is not ported to the Python build yet - use the legacy\n"
+            "PowerShell script for 1 -> 4, or queue the creator page: the worker\n"
+            "expands it with a flat listing on the next pass."
+        )
+        return 2
+
+    if args.menu:
+        show_dredge_menu(runtime, knowledge, probe_files=None)
+        if not (settings.once or settings.dry_run):
+            return 0
+
+    return run_loop(runtime, knowledge, engines)
+
+
+def prepare(
+    paths: Paths,
+    settings: Settings,
+    knowledge: Knowledge,
+    engines: Engines,
+    args: argparse.Namespace,
+) -> None:
+    """Startup: folders, generated config, dependency check, engines, cookies."""
+    paths.ensure()
+    write_gallery_runtime(paths, settings)
+    for path in (paths.queue, paths.fail, paths.offline, paths.skip):
+        if not path.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
+
+    fatal: list[str] = []
+    warn: list[str] = []
+    if not engines.yt:
+        fatal.append("yt-dlp not found. Install it with: winget install yt-dlp.yt-dlp")
+    if not engines.gdl:
+        warn.append("gallery-dl not found (tier 1 skipped). Install: winget install mikf.gallery-dl")
+    if not engines.megadl:
+        warn.append("megatools not found (MEGA links, engine=megadl, will fail)")
+    if not engines.mdrs:
+        warn.append("mediafire_rs not found (MediaFire links, engine=mdrs, will fail)")
+    for conf in (paths.ytdlp_conf, paths.ytdlp_generic_conf):
+        if not conf.exists():
+            fatal.append(f"config not found: {conf}")
+    if not paths.gallery_conf.exists():
+        warn.append(f"gallery-dl.conf not found: {paths.gallery_conf}")
+    if not paths.cookies.exists():
+        warn.append(f"cookies.txt not found: {paths.cookies} (some sites may fail)")
+    if not paths.pornsites.exists():
+        warn.append(
+            f"pornsites.txt not found: {paths.pornsites} "
+            "(everything routes to the default destination)"
+        )
+    for dest in (settings.dest_default, settings.dest_porn):
+        anchor = Path(dest).anchor
+        if anchor and not Path(anchor).exists():
+            fatal.append(f"destination drive not found: {dest}")
+
+    for dest in (settings.dest_default, settings.dest_porn):
+        try:
+            Path(dest).mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
+    clean_staging(settings.dest_default)
+    clean_staging(settings.dest_porn)
+
+    if fatal:
+        print("\nCannot start - the following are missing. Edit config/dredge.conf.")
+        for line in fatal:
+            print(f"  - {line}")
+        raise SystemExit(1)
+    for line in warn:
+        print(f"WARNING: {line}")
+
+    if not args.no_update and not settings.dry_run:
+        print("Updating engines...")
+        if engines.yt:
+            run([engines.yt, "--ignore-config", "-U"], cwd=paths.root)
+        if engines.gdl:
+            run([engines.gdl, "--config-ignore", "-U"], cwd=paths.root)
+
+    if not args.no_cookies and not settings.dry_run:
+        message = cookies.refresh(paths, knowledge, engines.gdl, settings.cookies_browser)
+        print(message)
+
+
+def clean_staging(dest: Path) -> None:
+    """Remove ``~dl-laneN`` / ``~fh-laneN`` folders left by a killed worker."""
+    folder = Path(dest)
+    if not folder.is_dir():
+        return
+    for stale in folder.glob("~*lane*"):
+        if not stale.is_dir() or not (stale.name.startswith("~dl-lane")
+                                      or stale.name.startswith("~fh-lane")):
+            continue
+        try:
+            size = sum(f.stat().st_size for f in stale.rglob("*") if f.is_file())
+            print(f"    clearing leftover staging folder {stale.name} ({size / 1024**2:.1f} MB)")
+        except OSError:
+            pass
+        shutil.rmtree(stale, ignore_errors=True)
+
+
+def run_worker(
+    paths: Paths,
+    settings: Settings,
+    knowledge: Knowledge,
+    engines: Engines,
+    args: argparse.Namespace,
+) -> int:
+    """``--worker``: one URL, the whole tier chain, one verdict file."""
+    if not args.url:
+        print("--worker needs --url")
+        return 2
+    worker = Worker(
+        paths,
+        settings,
+        engines,
+        knowledge,
+        domains=load_domains(paths.pornsites),
+        filehosts=load_domains(paths.filehosts),
+    )
+    verdict = worker.download(
+        args.url,
+        dest=Path(args.dest) if args.dest else None,
+        is_porn_dest=args.is_porn,
+        ignore_records=args.ignore_records,
+        lane_log=args.lane_log or None,
+        result=args.result or None,
+        archive=args.archive or None,
+    )
+    print(verdict)
+    return 0
+
+
+def run_loop(runtime: Runtime, knowledge: Knowledge, engines: Engines) -> int:
+    """The pass loop: one pass, then wait for the next queue line."""
+    paths = runtime.paths
+    settings = runtime.settings
+    opened: list[bool] = []
+
+    def open_menu() -> None:
+        if opened:
+            return
+        opened.append(True)
+        try:
+            show_dredge_menu(runtime, knowledge, probe_files=None)
+        finally:
+            opened.clear()
+
+    def pause(seconds: float) -> None:
+        menu.wait(seconds, open_menu)
+
+    if not settings.dry_run:
+        state.update_archive_sets(runtime, knowledge)
+    state.update_failed_set(runtime, knowledge)
+
+    while True:
+        if paths.paused.exists():
+            if not runtime.pause_shown:
+                print(
+                    f"[{_clock()}] downloads are paused - queue.txt is waiting for review "
+                    "(menu 1 -> 6 resumes)."
+                )
+                runtime.pause_shown = True
+            if settings.once:
+                break
+            pause(1.0)
+            continue
+        runtime.pause_shown = False
+
+        stats = run_pass(runtime, knowledge, engines)
+        if stats is None:
+            if settings.once or settings.dry_run:
+                print("Queue is empty.")
+                break
+            print(f"[{_clock()}] queue is empty - waiting for new links (clipboard or queue.txt).")
+            state.wait_for_change(
+                paths.queue, paths.clip_inbox, max(1, settings.idle_seconds), sleep=pause
+            )
+            continue
+        if settings.once or settings.dry_run:
+            break
+
+    if not settings.no_prompt and sys.stdin is not None and sys.stdin.isatty():
+        try:
+            input("Press Enter to close")
+        except EOFError:
+            pass
+    return 0
+
+
+def _clock() -> str:
+    return time.strftime("%H:%M:%S")
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

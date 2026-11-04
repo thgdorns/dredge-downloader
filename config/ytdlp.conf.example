@@ -1,0 +1,12 @@
+# yt-dlp tier-2 config. Paths are relative to the project root.
+--encoding utf-8
+--ies all,-generic
+--no-playlist
+--download-archive data/state/yt-dlp-archive.txt
+--windows-filenames
+--downloader aria2c
+--downloader dash,m3u8:native
+--socket-timeout 20
+--retries 3
+--no-warnings
+# --cookies config/cookies.txt

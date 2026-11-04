@@ -1,0 +1,5 @@
+# Host substitutions, two kinds:
+#   <from-host> <to-host>        fetch from another host
+#   alias <from-host> <to-host>  the same site under another name
+# Example:
+#   kemono.cr pawchive.pw

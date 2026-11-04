@@ -1,0 +1,7 @@
+# File-hosting sites: a collection link gets a subfolder named after it.
+# One domain per line, subdomains match.
+mediafire.com
+mega.nz
+mega.io
+gofile.io
+pixeldrain.com

@@ -1,0 +1,31 @@
+# runtime data - never publish
+data/
+logs/
+state/
+config/cookies.txt
+config/netrc
+config/dredge.conf
+config/sites.txt
+config/pornsites.txt
+config/mirrors.txt
+config/generic-sites.txt
+config/filehosts.txt
+config/ytdlp.conf
+config/ytdlp-generic.conf
+config/gallery-dl.conf
+config/gallery-dl.runtime.json
+
+# python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# local
+.env
+*.local

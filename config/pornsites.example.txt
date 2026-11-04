@@ -1,0 +1,3 @@
+# Adult-domain routing list: one domain per line, subdomains match.
+# Domains listed here are written to the adult destination, flat.
+# Keep your own list local; this example is intentionally empty.

@@ -83,6 +83,17 @@ def test_checks_menu_reports_the_current_switches(tmp_path, monkeypatch):
     assert "skip failed" in text
     assert "lanes" in text
     assert "pause/resume" in text
+    assert "strict mode     [OFF]" in text
+
+
+def test_strict_mode_option_toggles(tmp_path, monkeypatch):
+    _, runtime, knowledge = setup(tmp_path)
+    answers = iter(["7"])
+    monkeypatch.setattr(tui.menu, "select", lambda *a, **k: next(answers, None))
+
+    tui.show_checks_menu(runtime, knowledge)
+
+    assert runtime.strict_generic is True
 
 
 def test_lane_count_option_asks_for_a_number(tmp_path, monkeypatch):

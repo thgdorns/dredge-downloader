@@ -42,6 +42,14 @@ def make_runner(behaviour: dict[str, dict]):
         if manifest and saved:
             manifest.parent.mkdir(parents=True, exist_ok=True)
             manifest.write_text("\n".join(saved), encoding="utf-8")
+        extractor_file = None
+        for index, arg in enumerate(args):
+            if (arg in ("--Print-to-file", "--print-to-file") and index + 2 < len(args)
+                    and str(args[index + 1]).endswith("extractor")):
+                extractor_file = Path(args[index + 2])
+        if extractor_file and spec.get("extractor"):
+            extractor_file.parent.mkdir(parents=True, exist_ok=True)
+            extractor_file.write_text(spec["extractor"], encoding="utf-8")
         text = spec.get("text", "")
         if sink and text:
             for line in text.splitlines():
@@ -51,12 +59,13 @@ def make_runner(behaviour: dict[str, dict]):
     return fake
 
 
-def run(tmp_path, monkeypatch, behaviour, rule=None, url="https://example.com/post/1"):
+def run(tmp_path, monkeypatch, behaviour, rule=None, url="https://example.com/post/1",
+        strict: bool | None = None):
     paths = Paths(tmp_path)
     settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
     monkeypatch.setattr(worker_module, "run", make_runner(behaviour))
     worker = Worker(paths, settings, Engines(yt="yt-dlp", gdl="gallery-dl"),
-                    knowledge(rule))
+                    knowledge(rule), strict_generic=strict)
     verdict = worker.download(
         url,
         dest=tmp_path / "dest",
@@ -146,26 +155,48 @@ def test_a_dry_run_never_writes_a_row(tmp_path, monkeypatch):
     assert any("--simulate" in call for call in calls)
 
 
-def test_drop_gallery_entries_removes_junk_and_post_keys(tmp_path):
-    import sqlite3
+def test_a_page_asset_is_not_a_download(tmp_path, monkeypatch):
+    verdict, root = run(tmp_path, monkeypatch, {
+        "gdl": {"rc": 1, "text": "[gallery-dl][error] Unsupported URL"},
+        "yt": {"rc": 0, "files": ["adv_vert.js"]},
+    })
 
-    db = tmp_path / "archive.sqlite3"
-    con = sqlite3.connect(db)
-    con.execute("create table archive (entry text)")
-    con.executemany("insert into archive values (?)", [
-        ("directlinkhttps://x/a.mp4",),
-        ("kemono_user_123_3",),
-        ("kemono_user_123_4",),
-        ("other",),
-    ])
-    con.commit()
-    con.close()
+    assert verdict == "FAILED"
+    assert not (root / "lane1.archive").exists()
+    # the file is left where the engine wrote it; it is simply not a download
+    assert (root / "dest" / "adv_vert.js").exists()
 
-    dropped = worker_module.drop_gallery_entries(db, ["123_Title_03_name.jpg"])
 
-    assert dropped == 1
-    remaining = {row[0] for row in sqlite3.connect(db).execute("select entry from archive")}
-    assert remaining == {"directlinkhttps://x/a.mp4", "kemono_user_123_4", "other"}
+def test_a_small_video_is_a_download(tmp_path, monkeypatch):
+    verdict, root = run(tmp_path, monkeypatch, {
+        "gdl": {"rc": 0, "file": "short.mp4", "size": 50_000},
+    })
+
+    assert verdict == "OK|gallery-dl"
+    row = (root / "lane1.archive").read_text(encoding="utf-8")
+    assert "short.mp4" in row and "50000" in row
+
+
+def test_strict_mode_blocks_a_generic_result_from_an_unknown_host(tmp_path, monkeypatch):
+    verdict, root = run(tmp_path, monkeypatch, {
+        "gdl": {"rc": 1, "text": "Unsupported URL"},
+        "yt": {"rc": 0, "file": "clip.mp4", "extractor": "generic"},
+    }, strict=True)
+
+    assert verdict == "FAILED"
+    log = (root / "lane1.log").read_text(encoding="utf-8")
+    assert "[strict]" in log and "generic-sites.txt" in log
+
+
+def test_strict_mode_allows_a_listed_host(tmp_path, monkeypatch):
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "generic-sites.txt").write_text("example.com\n", encoding="utf-8")
+    verdict, _ = run(tmp_path, monkeypatch, {
+        "gdl": {"rc": 1, "text": "Unsupported URL"},
+        "yt": {"rc": 0, "file": "clip.mp4", "extractor": "generic"},
+    }, strict=True)
+
+    assert verdict == "OK|yt-dlp"
 
 
 def test_a_creator_page_is_one_row_per_post(tmp_path, monkeypatch):

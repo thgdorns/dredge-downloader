@@ -13,7 +13,6 @@ for the next pass), ``FAILED``, ``OFFLINE``.
 from __future__ import annotations
 
 import re
-import sqlite3
 import tempfile
 import threading
 import time
@@ -22,16 +21,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .archive import format_row
-from .config import MEDIA_EXT, OFFLINE_RE, RATE_RE, Paths, Settings
+from .config import AV_EXT, MEDIA_EXT, OFFLINE_RE, RATE_RE, Paths, Settings
 from .destinations import filehost_folder, is_porn
 from .engines import Engines, dir_signature, probe_down, produced, run
 from .sites import SiteRule
 from .urls import Knowledge, Playlist
 
 _PATH_CHARS = r'[^\r\n"<>|]+'
-_EXT = rf"\.(?:{MEDIA_EXT})"
 _SKIP_LINE = re.compile(r"(?m)^#\s+(.+?)\s*$")
-_POST_NAME = re.compile(r"^(\d+)_[^_]*_(\d+)_")
 
 
 @dataclass(frozen=True)
@@ -55,6 +52,7 @@ def file_records(
     manifest: str | Path | None = None,
     *,
     include_skipped: bool = False,
+    extensions: str | None = None,
 ) -> list[FileRecord]:
     """Media files an engine wrote, with their on-disk sizes.
 
@@ -63,7 +61,13 @@ def file_records(
     stops matching the file on disk. ``--print-to-file`` writes the real path in
     UTF-8. Without a manifest the text is parsed and every path is checked on
     disk, which also drops merged-away intermediates.
+
+    ``extensions`` restricts what counts as a download (``a|b|c`` without the
+    dot). A manifest from the generic tier happily lists ``adv_vert.js`` or a
+    ``.css`` file; those are page assets, not media.
     """
+    allowed = extensions or MEDIA_EXT
+    ext_re = re.compile(rf"(?i)\.(?:{allowed})$")
     dest_text = str(dest)
     paths: list[str] = []
     have_manifest = False
@@ -76,7 +80,7 @@ def file_records(
     if have_manifest:
         for line in Path(manifest).read_text(encoding="utf-8", errors="replace").splitlines():
             path = line.strip()
-            if path and path.lower().startswith(dest_text.lower()):
+            if path and path.lower().startswith(dest_text.lower()) and ext_re.search(path):
                 paths.append(path)
     else:
         body = text
@@ -85,7 +89,8 @@ def file_records(
                 line for line in text.splitlines() if not line.lstrip().startswith("#")
             )
         pattern = re.compile(
-            r"(?i)(" + re.escape(dest_text) + _PATH_CHARS + _EXT + r")(?=$|[\r\n\"<>|]|\s)"
+            r"(?i)(" + re.escape(dest_text) + _PATH_CHARS + rf"\.(?:{allowed})"
+            + r")(?=$|[\r\n\"<>|]|\s)"
         )
         paths = [m.group(1) for m in pattern.finditer(body)]
 
@@ -118,44 +123,6 @@ def unique_path(path: str | Path) -> Path:
     return p
 
 
-def drop_gallery_entries(db: str | Path, names: list[str]) -> int:
-    """Remove gallery-dl archive entries for files deleted as junk."""
-    path = Path(db)
-    if not names or not path.is_file():
-        return 0
-    targets: set[str] = set()
-    keys: set[tuple[str, str]] = set()
-    for name in names:
-        base = Path(name).name
-        targets.add(base.lower())
-        m = _POST_NAME.match(base)
-        if m:
-            keys.add((m.group(1), str(int(m.group(2)))))
-    dropped = 0
-    try:
-        con = sqlite3.connect(str(path))
-        try:
-            rows = [row[0] for row in con.execute("SELECT entry FROM archive")]
-            doomed = []
-            for entry in rows:
-                low = str(entry).lower()
-                if any(low.endswith(t) for t in targets):
-                    doomed.append(entry)
-                    continue
-                tail = str(entry).rsplit("_", 2)
-                if len(tail) == 3 and (tail[1], tail[2]) in keys:
-                    doomed.append(entry)
-            if doomed:
-                con.executemany("DELETE FROM archive WHERE entry = ?", [(d,) for d in doomed])
-                con.commit()
-                dropped = len(doomed)
-        finally:
-            con.close()
-    except sqlite3.Error:
-        return 0
-    return dropped
-
-
 class Worker:
     """Runs the tier chain for exactly one URL."""
 
@@ -168,6 +135,7 @@ class Worker:
         *,
         domains: tuple[str, ...] = (),
         filehosts: tuple[str, ...] = (),
+        strict_generic: bool | None = None,
     ) -> None:
         self.paths = paths
         self.settings = settings
@@ -175,11 +143,15 @@ class Worker:
         self.knowledge = knowledge
         self.domains = domains
         self.filehosts = filehosts
+        self.strict = (
+            settings.strict_generic if strict_generic is None else strict_generic
+        )
         self._buffer: list[str] = []
         self._log_path: Path | None = None
         self._lock = threading.Lock()
         self._url = ""
         self._temps: list[Path] = []
+        self._extractor = ""
 
     # -- logging ---------------------------------------------------------
     def _lane(self, message: str) -> None:
@@ -288,6 +260,13 @@ class Worker:
             files_manifest.unlink()
         except OSError:
             pass
+        extractor_file = self.paths.lane_extractor(slot)
+        extractor_args = ["--print-to-file", "after_move:extractor", str(extractor_file)]
+        try:
+            extractor_file.unlink()
+        except OSError:
+            pass
+        blocked = False
 
         # --- tier 1: gallery-dl -----------------------------------------
         if self.engines.gdl:
@@ -322,9 +301,6 @@ class Worker:
             exit_ok = rc == 0 or dead_only
             if exit_ok and not gdl_err and (page_ids or produced(final_dest, sig0, out, dry)):
                 engine = "gallery-dl"
-            if engine == "gallery-dl" and not dry and self._remove_junk(out, final_dest, files_manifest):
-                engine = None
-                self._lane("[junk] gallery-dl produced only junk video files - counting as failed")
 
             if (
                 engine == "gallery-dl" and not dry and not playlist
@@ -382,15 +358,19 @@ class Worker:
             rc, _ = run(
                 [self.engines.yt, "--ignore-config", "--config-locations",
                  str(self.paths.ytdlp_conf), *yt_args, *ignore_args, *common,
-                 *manifest_args, *sim, dl],
+                 *manifest_args, *extractor_args, *sim, dl],
                 cwd=self.paths.root, sink=self._sink,
             )
             if rc == 0 and produced(final_dest, sig0, self.text, dry):
                 engine = "yt-dlp"
+                self._extractor = self._read_extractor(extractor_file)
+                if self._strict_blocks(url, self._extractor):
+                    engine = None
+                    blocked = True
             yt_log = "\n".join(self._buffer[mark:])
 
         if (
-            not engine and not gdl_handled and not dry and yt_log
+            not engine and not blocked and not gdl_handled and not dry and yt_log
             and not re.search(r"Unsupported URL|is not a valid URL", yt_log)
             and self.engines.yt
         ):
@@ -399,14 +379,18 @@ class Worker:
             rc, _ = run(
                 [self.engines.yt, "--ignore-config", "--config-locations",
                  str(self.paths.ytdlp_conf), "--downloader", "native", *ignore_args,
-                 *common, *manifest_args, dl],
+                 *common, *manifest_args, *extractor_args, dl],
                 cwd=self.paths.root, sink=self._sink,
             )
             if rc == 0 and produced(final_dest, sig1, self.text, False):
                 engine = "yt-dlp-native"
+                self._extractor = self._read_extractor(extractor_file)
+                if self._strict_blocks(url, self._extractor):
+                    engine = None
+                    blocked = True
 
         generic_allowed = True
-        if self.settings.strict_generic and not gdl_handled:
+        if self.strict and not gdl_handled:
             from .urls import host as url_host
 
             h = url_host(url)
@@ -415,32 +399,34 @@ class Worker:
             )
             if not generic_allowed:
                 self._lane(
-                    f"[yt-dlp-generic] skipped: {h} is not in generic-sites.txt (-StrictGeneric)"
+                    f"[strict] {h} is not in generic-sites.txt - the generic tier is "
+                    "skipped (add the host there to allow it)"
                 )
 
-        if not engine and not gdl_handled and generic_allowed and self.engines.yt:
+        if not engine and not blocked and not gdl_handled and generic_allowed and self.engines.yt:
             self._lane(f"[yt-dlp-generic] {url}")
             rc, _ = run(
                 [self.engines.yt, "--ignore-config", "--config-locations",
                  str(self.paths.ytdlp_generic_conf), *ignore_args, *common3,
-                 *manifest_args, *sim, dl],
+                 *manifest_args, *extractor_args, *sim, dl],
                 cwd=self.paths.root, sink=self._sink,
             )
             if rc == 0 and produced(final_dest, sig0, self.text, dry):
                 engine = "yt-dlp-generic"
+                self._extractor = self._read_extractor(extractor_file)
 
-        if engine and not dry and self._remove_junk(
-            self.text, final_dest, files_manifest if str(engine).startswith("yt-dlp") else None
-        ):
-            engine = None
-            self._lane("[junk] only junk video files were produced - counting as failed")
-
+        # A yt-dlp tier counts only if a media file is actually on disk: a
+        # manifest can list page assets (.js, .css) or preview images, which
+        # are not downloads. Small videos are fine - size is not a signal.
         if (
             engine and str(engine).startswith("yt-dlp") and not dry
-            and not file_records(self.text, final_dest, files_manifest)
+            and not file_records(self.text, final_dest, files_manifest, extensions=AV_EXT)
         ):
             engine = None
-            self._lane("[yt-dlp] no final file on disk after a successful exit - counting as failed")
+            self._lane(
+                "[yt-dlp] no media file on disk after a successful exit - counting as failed "
+                "(a page asset or an image is not a download)"
+            )
 
         if engine:
             verdict = f"OK|{engine}"
@@ -538,38 +524,29 @@ class Worker:
                 out.append(text)
         return list(dict.fromkeys(out))
 
-    def _remove_junk(self, text: str, dest: Path, manifest: Path | None) -> bool:
-        present = [r for r in file_records(text, dest, manifest) if r.path.is_file()]
-        if not present:
+    def _read_extractor(self, path: Path) -> str:
+        """The extractor yt-dlp reported for the files it moved (last line)."""
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return ""
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        return lines[-1].lower() if lines else ""
+
+    def _strict_blocks(self, url: str, extractor: str) -> bool:
+        """True when strict mode refuses a generic result from an unknown host."""
+        if not self.strict or extractor != "generic":
             return False
-        junk = [
-            r for r in present
-            if re.search(r"(?i)\.(mp4|mkv|webm|mov|avi|flv|wmv|m4v|ts|mpg|mpeg|3gp)$", r.name)
-            and r.size < self.settings.min_video_bytes
-        ]
-        if not junk:
+        from .urls import host as url_host
+
+        host = url_host(url)
+        if any(host == d or host.endswith("." + d) for d in self._generic_sites()):
             return False
-        names = []
-        for record in junk:
-            self._lane(f"[junk] {record.size:,} B is not a video, deleting: {record.name}")
-            try:
-                record.path.unlink()
-            except OSError:
-                pass
-            names.append(record.name)
-            try:
-                self.paths.junk_removed.parent.mkdir(parents=True, exist_ok=True)
-                with self.paths.junk_removed.open("a", encoding="utf-8", newline="") as fh:
-                    fh.write(
-                        f"{_now()}\t{self.knowledge.canon(self._url)}\t"
-                        f"{record.name}\t{record.size}\r\n"
-                    )
-            except OSError:
-                pass
-        dropped = drop_gallery_entries(self.paths.gallery_archive, names)
-        if dropped:
-            self._lane(f"[junk] archive entries dropped: {dropped}")
-        return len(junk) >= len(present)
+        self._lane(
+            f"[strict] {host} has no dedicated extractor - add `{host}` to "
+            "config/generic-sites.txt to allow the generic tier"
+        )
+        return True
 
     def _expand_flat(self, dl: str) -> str | None:
         self._lane(f"[expand] flat listing {dl}")
@@ -672,7 +649,11 @@ class Worker:
         page_ids: list[str],
     ) -> None:
         include_skipped = engine == "gallery-dl" and not playlist
-        records = file_records(self.text, dest, manifest, include_skipped=include_skipped)
+        extensions = AV_EXT if str(engine or "").startswith("yt-dlp") else MEDIA_EXT
+        records = file_records(
+            self.text, dest, manifest,
+            include_skipped=include_skipped, extensions=extensions,
+        )
         if rule and records:
             records = self._apply_site_rules(rule, records)
         lines: list[str] = []

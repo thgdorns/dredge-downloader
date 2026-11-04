@@ -8,7 +8,6 @@ def test_defaults_match_the_legacy_script(tmp_path):
     assert settings.max_downloads == 4
     assert settings.idle_seconds == 3
     assert settings.progress_every_seconds == 15
-    assert settings.min_video_bytes == 102400
     assert settings.cookies_browser == "floorp"
     assert settings.dest_default == Path("E:/Downloads")
     assert settings.dest_porn == Path("E:/OTR/porn")

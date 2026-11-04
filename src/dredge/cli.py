@@ -53,15 +53,14 @@ def build_parser() -> argparse.ArgumentParser:
                         help="how often to look for new links while idle (default 3)")
     parser.add_argument("--progress-every", type=int, default=None, metavar="N",
                         help="seconds between lane status lines (0 = off, default 15)")
-    parser.add_argument("--min-video-bytes", type=int, default=None, metavar="N",
-                        help="a 'video' smaller than this is an error page (default 102400)")
     parser.add_argument("--no-capture", action="store_true", help="do not watch the clipboard")
     parser.add_argument("--no-update", action="store_true", help="skip the engine self-update")
     parser.add_argument("--no-cookies", action="store_true", help="skip the cookie refresh")
     parser.add_argument("--no-prompt", action="store_true",
                         help="skip the 'Press Enter to close' prompt (for scripting)")
     parser.add_argument("--strict-generic", action="store_true",
-                        help="only run the yt-dlp generic tier on hosts in generic-sites.txt")
+                        help="strict mode: a generic-extractor result only counts on hosts "
+                             "in generic-sites.txt")
     parser.add_argument("--ignore-records", action="store_true",
                         help="ignore downloads.tsv, fail/skip lists and the engine archives")
     parser.add_argument("--version", action="version", version=__version__)
@@ -87,7 +86,6 @@ def main(argv: list[str] | None = None) -> int:
         max_downloads=args.max_downloads,
         idle_seconds=args.idle_seconds,
         progress_every_seconds=args.progress_every,
-        min_video_bytes=args.min_video_bytes,
         no_capture=True if args.no_capture else None,
         retry_failed=True if args.retry_failed else None,
         strict_generic=True if args.strict_generic else None,

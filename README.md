@@ -95,13 +95,13 @@ copy config\gallery-dl.conf.example config\gallery-dl.conf
 | `--max-downloads N` | concurrent lanes (default 4) |
 | `--no-capture` | do not watch the clipboard |
 | `--no-update` / `--no-cookies` | skip the engine update / cookie refresh |
-| `--strict-generic` | only let the generic yt-dlp tier run on hosts in `generic-sites.txt` |
+| `--strict-generic` | strict mode: a generic-extractor result only counts on hosts in `generic-sites.txt` |
 | `--ignore-records` | ignore every record and engine archive (menu 1 -> 1) |
 | `--root DIR` | folder holding `config/`, `data/`, `logs/` (default: cwd) |
 
 Press **M** while it runs to open the menu. Inside: records check on/off, retry
-failed, skip failed, probe files, lane count, pause/resume, and shortcuts to
-the record files. **Esc** goes back.
+failed, skip failed, probe files, lane count, pause/resume, strict mode, and
+shortcuts to the record files. **Esc** goes back.
 
 Probe mode runs until **Esc** (or Ctrl+C) and leaves the queue paused so the
 list can be pruned first; it ends by resuming the downloads. With a piped
@@ -121,9 +121,14 @@ and scripted runs use.
    dedicated extractor, then yt-dlp again with the native downloader, then the
    all-extractor pass. The next tier only runs when the previous one failed or
    produced nothing. `engine=gdl` in `sites.txt` stops the chain early.
-5. Files smaller than `min=` (or than a video-sized threshold) are treated as
-   error pages and deleted, and the URL is recorded as failed.
-6. On success the URL, file names and sizes are appended to
+5. A yt-dlp result only counts if a video/audio file is on disk - a page asset
+   (`.js`, `.css`) or a preview image in the manifest is not a download. Size is
+   not a signal: a short clip is kept. `min=` in `sites.txt` is the opt-in rule
+   for sites that split a video into segments.
+6. With **strict mode** on (menu 1 -> 7), a yt-dlp tier that falls back to the
+   `generic` extractor only counts on hosts listed in `generic-sites.txt`;
+   everything else fails with a message naming the host to add.
+7. On success the URL, file names and sizes are appended to
    `data/state/fold-pending.tsv` and merged into `downloads.tsv` in batches -
    the 25 MB archive is never rewritten for a single download.
 

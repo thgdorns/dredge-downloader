@@ -42,6 +42,5 @@ cookies_browser = floorp
 # --- runtime ----------------------------------------------------------------
 idle_seconds = 3
 progress_every_seconds = 15
-min_video_bytes = 102400
 fold_batch_rows = 25
 fold_batch_seconds = 60

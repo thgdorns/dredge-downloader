@@ -48,6 +48,10 @@ def show_checks_menu(
                 "6", f"downloads       [{'PAUSED' if paused else 'running'}]  "
                      "pause/resume (queue.txt waits)"
             ),
+            menu.MenuItem(
+                "7", f"strict mode     [{'ON' if runtime.strict_generic else 'OFF'}]  "
+                     "the generic tier only runs on hosts in generic-sites.txt"
+            ),
         ]
         choice = menu.select("checks", items, close="back")
         if choice is None:
@@ -97,6 +101,13 @@ def show_checks_menu(
                 pause.parent.mkdir(parents=True, exist_ok=True)
                 pause.touch()
                 _say("downloads paused - queue.txt waits until you resume.")
+        elif choice == "7":
+            runtime.strict_generic = not runtime.strict_generic
+            if runtime.strict_generic:
+                _say("strict mode ON - a yt-dlp tier that falls back to the generic "
+                     "extractor only counts on hosts in generic-sites.txt.")
+            else:
+                _say("strict mode OFF - the generic tier may handle any host.")
 
 
 def show_files_menu(runtime: Runtime) -> None:

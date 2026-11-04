@@ -190,6 +190,7 @@ def run_pass(
             worker = Worker(
                 paths, settings, engines, knowledge,
                 domains=domains, filehosts=filehosts,
+                strict_generic=runtime.strict_generic,
             )
             thread = threading.Thread(
                 target=_run_worker,

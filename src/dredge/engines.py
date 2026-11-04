@@ -19,7 +19,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .config import VIDEO_EXT, Paths, Settings
+from .config import Paths, Settings
 from .sites import SiteRule
 
 Sink = Callable[[str], None]
@@ -211,14 +211,3 @@ def lane_status(lane_log: str | Path) -> tuple[str, str]:
     if file:
         file = re.split(r"[\\/]", file)[-1]
     return file, pct
-
-
-def junk_videos(text: str, dest: str | Path, manifest: str | Path | None, minimum: int) -> list[Path]:
-    """Produced video files smaller than ``minimum`` (error pages, ad frames)."""
-    from .worker import file_records
-
-    return [
-        record.path
-        for record in file_records(text, dest, manifest)
-        if VIDEO_EXT.search(record.name) and record.size < minimum
-    ]

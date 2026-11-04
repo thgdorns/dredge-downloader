@@ -14,9 +14,6 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# A "video" smaller than this is an error page or an ad frame, not a download.
-MIN_VIDEO_BYTES = 100 * 1024
-
 # An unavailable/deleted item is not retried: it is gone, not throttled.
 OFFLINE_RE = re.compile(
     r"(?i)(no longer available|unavailable|not found|removed|deleted|404|"
@@ -35,8 +32,11 @@ MEDIA_EXT = (
     "kra|bin|txt"
 )
 
-# Only these count as a "video" for the junk guard.
-VIDEO_EXT = re.compile(r"(?i)\.(mp4|mkv|webm|mov|avi|flv|wmv|m4v|ts|mpg|mpeg|3gp)$")
+# What a yt-dlp tier may record. A page asset (.css, .js, a preview .jpg) is
+# not a download, and without this a generic pass happily reports one.
+AV_EXT = (
+    "mp4|mkv|webm|mov|avi|flv|wmv|m4v|ts|mpg|mpeg|3gp|mp3|m4a|flac|wav|opus|aac"
+)
 
 
 @dataclass(frozen=True)
@@ -157,10 +157,6 @@ class Paths:
     def gallery_archive(self) -> Path:
         return self.state / "gallery-dl.sqlite3"
 
-    @property
-    def junk_removed(self) -> Path:
-        return self.state / "junk-removed.tsv"
-
     def lane_log(self, slot: int) -> Path:
         return self.logs / f"lane{slot}.log"
 
@@ -172,6 +168,9 @@ class Paths:
 
     def lane_files(self, slot: int) -> Path:
         return self.logs / f"lane{slot}.files"
+
+    def lane_extractor(self, slot: int) -> Path:
+        return self.logs / f"lane{slot}.extractor"
 
     def ensure(self) -> None:
         for folder in (self.data, self.state, self.logs):
@@ -248,7 +247,6 @@ class Settings:
     no_capture: bool = False
     no_prompt: bool = False
     ignore_records: bool = False
-    min_video_bytes: int = MIN_VIDEO_BYTES
     progress_every_seconds: int = 15
 
     # batching
@@ -284,7 +282,7 @@ def _read_conf(path: Path) -> dict[str, object]:
         "dest_fallback_below_gb": int, "tpl_default": str, "tpl_porn": str,
         "tpl_generic": str, "gdl_dir": str, "max_downloads": int, "yt": str,
         "gdl": str, "megatools": str, "mediafire": str, "cookies_browser": str,
-        "idle_seconds": int, "min_video_bytes": int, "progress_every_seconds": int,
+        "idle_seconds": int, "progress_every_seconds": int,
         "fold_batch_rows": int, "fold_batch_seconds": int,
     }
     out: dict[str, object] = {}
@@ -313,6 +311,7 @@ class Runtime:
     settings: Settings
     max_downloads: int = field(default=4)
     archive_check: bool = True
+    strict_generic: bool = False
     pause_shown: bool = False
     # record sets, kept current by state.py
     seen: set[str] = field(default_factory=set)
@@ -324,3 +323,5 @@ class Runtime:
 
     def __post_init__(self) -> None:
         self.max_downloads = max(1, int(self.settings.max_downloads))
+        if not self.strict_generic:
+            self.strict_generic = self.settings.strict_generic

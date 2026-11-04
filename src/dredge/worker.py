@@ -306,14 +306,20 @@ class Worker:
             gdl_err = (file_err or page_err) and not unsupported and not dead_only
             page_ids = self._page_ids(pages_manifest) if playlist else []
             exit_ok = rc == 0 or dead_only
-            if exit_ok and not gdl_err and (page_ids or produced(final_dest, sig0, out, dry)):
+            existing = file_records(out, final_dest, files_manifest, include_skipped=True)
+            made = produced(final_dest, sig0, out, dry)
+            skipped = bool(_SKIP_LINE.search(out))
+            if exit_ok and not gdl_err and (page_ids or made or existing or skipped):
                 engine = "gallery-dl"
+                if not made and existing:
+                    self._lane(
+                        "[gallery-dl] files already on disk - recording them as downloaded"
+                    )
 
             if (
-                engine == "gallery-dl" and not dry and not playlist
-                and not file_records(out, final_dest, files_manifest, include_skipped=True)
+                engine == "gallery-dl" and not dry and not playlist and not existing
             ):
-                self._lane("[gallery-dl] only skip lines - retrying without its archive")
+                self._lane("[gallery-dl] archived files are missing here - fetching them again")
                 retry_arc = Path(_temp_archive())
                 self._temps.append(retry_arc)
                 retry = [self.engines.gdl, "--download-archive", str(retry_arc), *args]

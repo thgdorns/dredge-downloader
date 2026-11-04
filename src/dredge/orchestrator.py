@@ -336,8 +336,12 @@ def run_pass(
                     stats.ok[engine] = stats.ok.get(engine, 0) + 1
 
                 files = _files_summary(rows)
+                if not files:
+                    attempted = lane_status_tail(paths.lane_log(slot))[0]
+                    if attempted and not attempted.lower().startswith(("http://", "https://")):
+                        files = f"  -> {attempted}"
                 done += 1
-                detail = f"{verdict}{files}  {lane.url}"
+                detail = f"{verdict}  {lane.url}{files}"
                 _log_line(stats.log, f"[{stamp()}] {detail}")
                 out(f"[{stamp()}] {done}/{len(ordered)}: lane {slot}: {detail}")
                 if board:
@@ -418,16 +422,15 @@ def _archive_rows(path: Path) -> list[str]:
 
 
 def _files_summary(rows: list[str]) -> str:
-    if len(rows) == 1:
-        fields = rows[0].split("\t")
-        return f" -> {fields[2]}" if len(fields) >= 3 and fields[2] else ""
-    if len(rows) > 1:
-        count = sum(
-            len([n for n in row.split("\t")[2].split(";") if n])
-            for row in rows if len(row.split("\t")) >= 3
-        )
-        return f" -> {len(rows)} pages, {count} files"
-    return ""
+    names: list[str] = []
+    for row in rows:
+        fields = row.split("\t")
+        if len(fields) >= 3 and fields[2]:
+            names.extend(n for n in fields[2].split(";") if n)
+    names = list(dict.fromkeys(names))
+    if not names:
+        return ""
+    return "  -> " + "; ".join(names)
 
 
 def _warn_pages(rows: list[str], out, stamp) -> None:

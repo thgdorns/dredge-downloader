@@ -113,12 +113,15 @@ names the running process, so two processes cannot race on `queue.txt` and
 into it - that race can empty both).
 
 Each finished URL prints the same line the run log gets, with its position in
-the queue and the lane:
+the queue, the lane, and the file names after the URL:
 
 ```
-[14:02:11] 20/1277: lane 2: OK|gallery-dl -> clip.mp4  https://example.com/post/123
+[14:02:11] 20/1277: lane 2: OK|gallery-dl  https://example.com/post/123  -> clip.mp4
 [14:02:19] 21/1277: lane 1: FAILED  https://example.com/post/124
 ```
+
+A failed URL ends with the file name it had reached when the engine got that
+far (a partial download, for example); if it never named one, it stays URL-only.
 
 On a terminal the lanes are a live block of one line each, redrawn several
 times a second. A line moves through the URL, then the file with the

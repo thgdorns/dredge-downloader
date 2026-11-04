@@ -7,6 +7,7 @@ from dredge.orchestrator import (
     Lane,
     _capture,
     _catch_up_queue,
+    _files_summary,
     _free_slot,
     _take_next,
     run_pass,
@@ -109,7 +110,7 @@ def test_a_pass_records_success_and_failure(tmp_path, monkeypatch):
     assert len(rows) == 1
     assert "clip.mp4" in rows[0]
     text = "\n".join(messages)
-    assert "1/2: lane 1: OK|gallery-dl -> clip.mp4  https://example.com/good" in text
+    assert "1/2: lane 1: OK|gallery-dl  https://example.com/good  -> clip.mp4" in text
     assert "2/2: lane 1: FAILED  https://example.com/bad" in text
 
 
@@ -234,3 +235,14 @@ def test_catch_up_queue_adds_a_line_written_during_a_pass(tmp_path):
     assert _catch_up_queue(
         paths, knowledge, ordered, pending, remaining, queued, settings
     ) == []
+
+
+def test_files_summary_lists_every_name():
+    rows = [
+        "2026-01-01 00:00:00\turl:1\ta.mp4;b.mp4\t1;2",
+        "2026-01-01 00:00:00\turl:2\tc.mp4\t3",
+        "2026-01-01 00:00:00\turl:3\ta.mp4\t1",
+    ]
+    assert _files_summary(rows) == "  -> a.mp4; b.mp4; c.mp4"
+    assert _files_summary([]) == ""
+

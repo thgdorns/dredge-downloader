@@ -11,13 +11,13 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from . import menu, records, state
+from . import menu, paint, records, state
 from .config import Runtime
 from .urls import Knowledge
 
 
-def _say(message: str) -> None:
-    print(f"    {message}")
+def _say(message: str, color: str = "") -> None:
+    print(f"    {paint.paint(message, color)}")
 
 
 def show_checks_menu(
@@ -35,6 +35,7 @@ def show_checks_menu(
                 "1",
                 f"records check   [{'ON' if runtime.archive_check else 'OFF'}]  "
                 "skip anything already downloaded, failed or skipped",
+                color="gray" if runtime.archive_check else "yellow",
             ),
             menu.MenuItem(
                 "2", f"retry failed    move fail.txt back into the queue ({fail_count} link(s))"
@@ -64,10 +65,10 @@ def show_checks_menu(
             runtime.archive_check = not runtime.archive_check
             if runtime.archive_check:
                 _say("records check ON - downloads.tsv, fail.txt, skip.txt and the engine "
-                     "archives are honoured.")
+                     "archives are honoured.", "green")
             else:
                 _say("records check OFF - every previous record is ignored: queued links are "
-                     "fetched again from scratch.")
+                     "fetched again from scratch.", "yellow")
         elif choice == "2":
             retry_failed(runtime, knowledge)
         elif choice == "3":
@@ -78,12 +79,12 @@ def show_checks_menu(
             if probe_files:
                 probe_files()
             else:
-                _say("probe mode needs the engines - run dredge with --probe-files.")
+                _say("probe mode needs the engines - run dredge with --probe-files.", "yellow")
         elif choice == "6":
             _say(f"lanes now: {runtime.max_downloads}")
             answer = menu.prompt_line("    concurrent downloads (1-16, Enter keeps it) ").strip()
             if not answer:
-                _say("lanes unchanged.")
+                _say("lanes unchanged.", "darkgray")
             else:
                 try:
                     value = int(answer)
@@ -91,9 +92,9 @@ def show_checks_menu(
                     value = 0
                 if 1 <= value <= 16:
                     runtime.max_downloads = value
-                    _say(f"lanes set to {value} - the next free slot uses it.")
+                    _say(f"lanes set to {value} - the next free slot uses it.", "green")
                 else:
-                    _say("lanes must be a number from 1 to 16.")
+                    _say("lanes must be a number from 1 to 16.", "yellow")
         elif choice == "7":
             pause = runtime.paths.paused
             if pause.exists():
@@ -102,11 +103,11 @@ def show_checks_menu(
                 except OSError:
                     pass
                 state.update_failed_set(runtime, knowledge)
-                _say("downloads resumed - queue.txt is live again.")
+                _say("downloads resumed - queue.txt is live again.", "green")
             else:
                 pause.parent.mkdir(parents=True, exist_ok=True)
                 pause.touch()
-                _say("downloads paused - queue.txt waits until you resume.")
+                _say("downloads paused - queue.txt waits until you resume.", "yellow")
         elif choice == "8":
             runtime.strict_generic = not runtime.strict_generic
             if runtime.strict_generic:
@@ -140,7 +141,7 @@ def show_files_menu(runtime: Runtime) -> None:
 
 def open_record(path: Path) -> None:
     if not path.exists():
-        _say(f"missing: {path}")
+        _say(f"missing: {path}", "yellow")
         return
     try:
         if sys.platform == "win32":
@@ -152,7 +153,7 @@ def open_record(path: Path) -> None:
         else:
             print(f"    {path}")
     except OSError:
-        _say("could not open it")
+        _say("could not open it", "red")
 
 
 def show_dredge_menu(
@@ -181,11 +182,11 @@ def retry_skipped(runtime: Runtime, knowledge: Knowledge) -> None:
     """Move every skip.txt URL back into the queue and empty skip.txt."""
     paths = runtime.paths
     if not paths.skip.exists():
-        _say("skip.txt is missing.")
+        _say("skip.txt is missing.", "yellow")
         return
     skipped = records.read_lines(paths.skip)
     if not skipped:
-        _say("skip.txt has nothing to retry.")
+        _say("skip.txt has nothing to retry.", "darkgray")
         return
     queued = set(records.read_lines(paths.queue))
     add = [url for url in skipped if url not in queued]
@@ -195,23 +196,23 @@ def retry_skipped(runtime: Runtime, knowledge: Knowledge) -> None:
             records.append_lines(paths.queue, add)
         records.write_lines(paths.skip, [])
     except OSError as exc:
-        _say(f"could not update the records: {exc}")
+        _say(f"could not update the records: {exc}", "red")
         return
     state.update_failed_set(runtime, knowledge)
-    _say(f"{len(add)} link(s) moved from skip.txt into the queue.")
+    _say(f"{len(add)} link(s) moved from skip.txt into the queue.", "green")
     if len(skipped) > len(add):
-        _say(f"{len(skipped) - len(add)} were already queued.")
+        _say(f"{len(skipped) - len(add)} were already queued.", "darkgray")
 
 
 def retry_failed(runtime: Runtime, knowledge: Knowledge) -> None:
     """Move every fail.txt URL back into the queue and empty fail.txt."""
     paths = runtime.paths
     if not paths.fail.exists():
-        _say("fail.txt is missing.")
+        _say("fail.txt is missing.", "yellow")
         return
     failed = records.read_lines(paths.fail)
     if not failed:
-        _say("fail.txt has nothing to retry.")
+        _say("fail.txt has nothing to retry.", "darkgray")
         return
     queued = set(records.read_lines(paths.queue))
     add = [url for url in failed if url not in queued]
@@ -221,23 +222,23 @@ def retry_failed(runtime: Runtime, knowledge: Knowledge) -> None:
             records.append_lines(paths.queue, add)
         records.write_lines(paths.fail, [])
     except OSError as exc:
-        _say(f"could not update the records: {exc}")
+        _say(f"could not update the records: {exc}", "red")
         return
     state.update_failed_set(runtime, knowledge)
-    _say(f"{len(add)} link(s) moved from fail.txt into the queue.")
+    _say(f"{len(add)} link(s) moved from fail.txt into the queue.", "green")
     if len(failed) > len(add):
-        _say(f"{len(failed) - len(add)} were already queued.")
+        _say(f"{len(failed) - len(add)} were already queued.", "darkgray")
 
 
 def skip_failed(runtime: Runtime, knowledge: Knowledge) -> None:
     """Move every fail.txt URL into skip.txt: never retried again."""
     paths = runtime.paths
     if not paths.fail.exists():
-        _say("fail.txt is missing.")
+        _say("fail.txt is missing.", "yellow")
         return
     failed = records.read_lines(paths.fail)
     if not failed:
-        _say("fail.txt has nothing to skip.")
+        _say("fail.txt has nothing to skip.", "darkgray")
         return
     known = set(records.read_lines(paths.skip))
     add = [url for url in failed if url not in known]
@@ -247,9 +248,9 @@ def skip_failed(runtime: Runtime, knowledge: Knowledge) -> None:
             records.append_lines(paths.skip, add)
         records.write_lines(paths.fail, [])
     except OSError as exc:
-        _say(f"could not update the records: {exc}")
+        _say(f"could not update the records: {exc}", "red")
         return
     state.update_failed_set(runtime, knowledge)
-    _say(f"{len(add)} link(s) moved from fail.txt to skip.txt (never retried).")
+    _say(f"{len(add)} link(s) moved from fail.txt to skip.txt (never retried).", "green")
     if len(failed) > len(add):
-        _say(f"{len(failed) - len(add)} were already in skip.txt.")
+        _say(f"{len(failed) - len(add)} were already in skip.txt.", "darkgray")

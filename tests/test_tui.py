@@ -69,10 +69,12 @@ def test_skip_failed_does_not_add_a_link_already_skipped(tmp_path):
 def test_checks_menu_reports_the_current_switches(tmp_path, monkeypatch):
     _, runtime, knowledge = setup(tmp_path)
     shown: list[str] = []
+    colors: list[str] = []
 
     def fake_select(title, items, close="close"):
         shown.append(title)
         shown.extend(item.label for item in items)
+        colors.extend(item.color for item in items)
 
     monkeypatch.setattr(tui.menu, "select", fake_select)
     tui.show_checks_menu(runtime, knowledge)
@@ -85,6 +87,8 @@ def test_checks_menu_reports_the_current_switches(tmp_path, monkeypatch):
     assert "lanes" in text
     assert "pause/resume" in text
     assert "strict mode     [OFF]" in text
+    # ON is Gray, OFF is Yellow: the legacy menu warned about a disabled check
+    assert colors[0] == "gray"
 
 
 def test_strict_mode_option_toggles(tmp_path, monkeypatch):

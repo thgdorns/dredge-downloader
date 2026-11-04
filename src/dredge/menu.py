@@ -11,18 +11,22 @@ import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
+from . import paint
+
 
 @dataclass(frozen=True)
 class MenuItem:
     key: str
     label: str
+    color: str = ""
 
 
 def render(title: str, items: Sequence[MenuItem], close: str = "close") -> str:
-    lines = [title, ""]
+    lines = [paint.cyan(title), ""]
     for item in items:
-        lines.append(f"   {item.key}) {item.label}")
-    lines.extend(["", f"   Esc) {close}"])
+        line = f"   {item.key}) {item.label}"
+        lines.append(paint.paint(line, item.color) if item.color else line)
+    lines.extend(["", paint.darkgray(f"   Esc) {close}")])
     return "\n".join(lines)
 
 
@@ -38,6 +42,7 @@ def select(title: str, items: Sequence[MenuItem], close: str = "close") -> str |
     """Show the menu and return the chosen key, or ``None`` for Esc/close."""
     try:
         from prompt_toolkit import Application
+        from prompt_toolkit.formatted_text import ANSI
         from prompt_toolkit.key_binding import KeyBindings
         from prompt_toolkit.layout import Layout, Window
         from prompt_toolkit.layout.controls import FormattedTextControl
@@ -58,7 +63,7 @@ def select(title: str, items: Sequence[MenuItem], close: str = "close") -> str |
         def _choose(event, key=item.key):
             event.app.exit(result=key)
 
-    control = FormattedTextControl(lambda: render(title, items, close))
+    control = FormattedTextControl(lambda: ANSI(render(title, items, close)))
     app = Application(
         layout=Layout(Window(control)),
         key_bindings=bindings,

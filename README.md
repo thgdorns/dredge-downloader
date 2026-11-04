@@ -126,6 +126,13 @@ and speed the engine reports (yt-dlp's progress template, gallery-dl's output
 mode), under the same `done/total: lane N:` prefix. Nothing is truncated; the
 console wraps long URLs on its own.
 
+The console keeps the PowerShell colours: cyan for the banner and menu titles,
+green for `Finished` and successful menu actions, yellow for warnings and
+paused states, red for errors, and grey for background lines (run log, archive
+merges, lane status). Colour is only emitted on a terminal, so redirected
+output and log files stay plain; `NO_COLOR=1` disables it and `FORCE_COLOR=1`
+keeps it for a pipe (for example `... | less -R`).
+
 ## How a URL is handled
 
 1. Tracking arguments are stripped and the URL is canonicalised

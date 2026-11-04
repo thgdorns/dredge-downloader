@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from . import records, state
+from . import paint, records, state
 from .archive import append_pending, merge_pending
 from .config import Runtime
 from .destinations import destination_for, free_gb, load_domains
@@ -63,7 +63,8 @@ def say(message: str, paths=None) -> None:
         return
     try:
         with (paths.logs / "dl8.log").open("a", encoding="utf-8", newline="") as fh:
-            fh.write(message + "\r\n")
+            # the log mirrors the console without the colour codes
+            fh.write(paint.strip(message) + "\r\n")
     except OSError:
         pass
 
@@ -87,14 +88,16 @@ def run_pass(
         captured = state.read_clip_inbox(paths.clip_inbox)
         if captured:
             records.append_lines(paths.queue, captured)
-            out(f"[{stamp()}] clipboard: +{len(captured)} URL(s) queued.")
+            out(paint.cyan(f"[{stamp()}] clipboard: +{len(captured)} URL(s) queued."))
             urls += captured
 
     if not settings.dry_run and paths.staged_queue.exists():
         staged = read_queue(paths.staged_queue)
         if staged:
             urls += staged
-            out(f"[{stamp()}] {len(staged)} staged URL(s) from queue-requeue.txt added to this run.")
+            out(paint.darkgray(
+                f"[{stamp()}] {len(staged)} staged URL(s) from queue-requeue.txt added to this run."
+            ))
         try:
             paths.staged_queue.unlink()
         except OSError:
@@ -112,7 +115,9 @@ def run_pass(
     if not settings.dry_run:
         runtime.arc_sig = state.archive_signature(paths.archive)
     if merged.total:
-        out(f"[{stamp()}] archive: {merged.total} row(s) left pending by the last run were merged.")
+        out(paint.darkgray(
+            f"[{stamp()}] archive: {merged.total} row(s) left pending by the last run were merged."
+        ))
 
     plan = build_plan(
         urls,
@@ -124,9 +129,11 @@ def run_pass(
         retry_failed=settings.retry_failed,
     )
     if plan.unusable:
-        out(f"[{stamp()}] {plan.unusable} unusable queue line(s) dropped (not an http(s) URL).")
+        out(paint.yellow(
+            f"[{stamp()}] {plan.unusable} unusable queue line(s) dropped (not an http(s) URL)."
+        ))
     if plan.skipped:
-        out(f"[{stamp()}] {plan.summary()}")
+        out(paint.darkgray(f"[{stamp()}] {plan.summary()}"))
         if not settings.dry_run:
             records.write_lines(paths.queue, plan.urls)
 
@@ -134,20 +141,20 @@ def run_pass(
         plan.urls, settings=settings, knowledge=knowledge
     )
     if primary and secondary:
-        out(
+        out(paint.darkgray(
             f"[{stamp()}] {primary} link(s) to the default destination first, "
             f"then {secondary} to the others."
-        )
+        ))
     if not ordered:
         return None
 
-    out("dredge v8 - multi-engine downloader")
+    out(paint.cyan("dredge v8 - multi-engine downloader"))
     out(f"[{stamp()}] {len(ordered)} links queued.")
 
     stats = PassStats(total=len(ordered))
     stats.log = paths.logs / time.strftime("run-%Y%m%d-%H%M%S.log")
     _log_line(stats.log, f"[{stats.started:%Y-%m-%d %H:%M:%S}] dredge run - {len(ordered)} links queued")
-    out(f"[{stamp()}] Run log: {stats.log}")
+    out(paint.darkgray(f"[{stamp()}] Run log: {stats.log}"))
 
     remaining = list(ordered)
     pending = list(range(len(ordered)))
@@ -181,7 +188,7 @@ def run_pass(
                             f"[{stamp()}] Stopping: only {free:.0f} GB free on "
                             f"{target.path.anchor} ({target.name}) - its links stay queued."
                         )
-                        out(message)
+                        out(paint.yellow(message))
                         _log_line(stats.log, message)
                         continue
             slot = _free_slot(active, runtime.max_downloads)
@@ -223,7 +230,9 @@ def run_pass(
                 extra = "  ".join(part for part in (pct, speed) if part)
                 detail = f"{name}  {extra}" if extra else name
                 lane = active[slot]
-                out(f"[{stamp()}] {lane.index}/{len(ordered)}: lane {slot}: {detail}")
+                out(paint.darkgray(
+                    f"[{stamp()}] {lane.index}/{len(ordered)}: lane {slot}: {detail}"
+                ))
 
         if not settings.no_capture and not settings.dry_run:
             captured = state.read_clip_inbox(paths.clip_inbox)
@@ -259,7 +268,7 @@ def run_pass(
                         pending_rows = 0
                         pending_since = time.monotonic()
                         if merged_now.total:
-                            out(f"[{stamp()}] archive: {merged_now.total} row(s) merged.")
+                            out(paint.darkgray(f"[{stamp()}] archive: {merged_now.total} row(s) merged."))
 
             if lane.url in remaining:
                 remaining.remove(lane.url)
@@ -290,7 +299,7 @@ def run_pass(
         )
         runtime.arc_sig = state.archive_signature(paths.archive)
         if merged_end.total:
-            out(f"[{stamp()}] archive: {merged_end.total} row(s) merged.")
+            out(paint.darkgray(f"[{stamp()}] archive: {merged_end.total} row(s) merged."))
 
     end = _local_now()
     elapsed = end - stats.started
@@ -299,8 +308,8 @@ def run_pass(
         f"[{end:%Y-%m-%d %H:%M:%S}] Finished in {elapsed}. OK={stats.ok_total} "
         f"[{stats.engine_summary()}] FAILED={stats.failed} OFFLINE={stats.offline}",
     )
-    out(f"[{stamp()}] Finished.")
-    out(f"Run log: {stats.log}")
+    out(paint.green(f"[{stamp()}] Finished."))
+    out(paint.darkgray(f"Run log: {stats.log}"))
     return stats
 
 
@@ -367,10 +376,10 @@ def _warn_pages(rows: list[str], out, stamp) -> None:
         if len(fields) >= 3 and fields[2]:
             count = len([n for n in fields[2].split(";") if n])
             if count > 8:
-                out(
+                out(paint.yellow(
                     f"[{stamp()}] WARNING: one URL produced {count} files (looks like a page "
                     f"listing, not a single video): {fields[1]}"
-                )
+                ))
 
 
 def _mark_failed(runtime: Runtime, knowledge: Knowledge, url: str) -> None:

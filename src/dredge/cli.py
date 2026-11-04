@@ -16,7 +16,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import __version__, clipboard, cookies, menu, state
+from . import __version__, clipboard, cookies, menu, paint, state
 from .config import Paths, Runtime, Settings, write_gallery_runtime
 from .destinations import apply_fallback, load_domains
 from .engines import Engines, run
@@ -105,9 +105,9 @@ def main(argv: list[str] | None = None) -> int:
         lock.acquire()
     except AlreadyRunning as exc:
         pid = f" (pid {exc.pid})" if exc.pid else ""
-        print(
+        print(paint.red(
             f"another dredge is already running{pid} - close it before starting a second one."
-        )
+        ))
         return 3
     try:
         return _run_instance(paths, settings, knowledge, engines, args)
@@ -124,10 +124,10 @@ def _run_instance(
 ) -> int:
     settings = apply_fallback(settings)
     if settings.fallback_note:
-        print(
+        print(paint.yellow(
             f"[{_clock()}] {settings.fallback_note} "
             f"({settings.destinations[settings.default_dest].path})."
-        )
+        ))
 
     try:
         prepare(paths, settings, knowledge, engines, args)
@@ -196,15 +196,15 @@ def prepare(
         clean_staging(dest.path)
 
     if fatal:
-        print("\nCannot start - the following are missing. Edit config/dredge.conf.")
+        print(paint.yellow("\nCannot start - the following are missing. Edit config/dredge.conf."))
         for line in fatal:
-            print(f"  - {line}")
+            print(paint.red(f"  - {line}"))
         raise SystemExit(1)
     for line in warn:
-        print(f"WARNING: {line}")
+        print(paint.yellow(f"WARNING: {line}"))
 
     if not args.no_update and not settings.dry_run:
-        print("Updating engines...")
+        print(paint.darkgray("Updating engines..."))
         if engines.yt:
             run([engines.yt, "--ignore-config", "-U"], cwd=paths.root)
         if engines.gdl:
@@ -212,7 +212,7 @@ def prepare(
 
     if not args.no_cookies and not settings.dry_run:
         message = cookies.refresh(paths, knowledge, engines.gdl, settings.cookies_browser)
-        print(message)
+        print(paint.darkgray(message))
 
 
 def clean_staging(dest: Path) -> None:
@@ -301,10 +301,10 @@ def run_loop(runtime: Runtime, knowledge: Knowledge, engines: Engines) -> int:
     while True:
         if paths.paused.exists():
             if not runtime.pause_shown:
-                print(
+                print(paint.yellow(
                     f"[{_clock()}] downloads are paused - queue.txt is waiting for review "
                     "(menu 1 -> 6 resumes)."
-                )
+                ))
                 runtime.pause_shown = True
             if settings.once:
                 break
@@ -315,9 +315,11 @@ def run_loop(runtime: Runtime, knowledge: Knowledge, engines: Engines) -> int:
         stats = run_pass(runtime, knowledge, engines)
         if stats is None:
             if settings.once or settings.dry_run:
-                print("Queue is empty.")
+                print(paint.darkgray("Queue is empty."))
                 break
-            print(f"[{_clock()}] queue is empty - waiting for new links (clipboard or queue.txt).")
+            print(paint.darkgray(
+                f"[{_clock()}] queue is empty - waiting for new links (clipboard or queue.txt)."
+            ))
             state.wait_for_change(
                 paths.queue, paths.clip_inbox, max(1, settings.idle_seconds), sleep=pause
             )
@@ -342,14 +344,14 @@ def _start_capture(runtime: Runtime) -> clipboard.Capture | None:
     if settings.dry_run or settings.no_capture:
         return None
     if not clipboard.available():
-        print(
+        print(paint.yellow(
             f"[{_clock()}] clipboard capture off: pyperclip is not installed "
             "(pip install pyperclip, or queue links by hand)."
-        )
+        ))
         return None
     capture = clipboard.Capture(runtime.paths.clip_inbox)
     capture.start()
-    print(f"[{_clock()}] clipboard capture on: copy a URL and it joins the queue.")
+    print(paint.darkgray(f"[{_clock()}] clipboard capture on: copy a URL and it joins the queue."))
     return capture
 
 

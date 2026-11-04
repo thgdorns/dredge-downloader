@@ -25,7 +25,7 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import records, state
+from . import paint, records, state
 from .clipboard import ClipboardWatcher, available
 from .config import Paths, Runtime
 from .engines import Engines, run
@@ -371,11 +371,15 @@ def run_mode(
 
     interactive = sys.stdin is not None and sys.stdin.isatty()
     if interactive and not available():
-        out("    clipboard backend not installed (pyperclip) - draining the inbox once.")
+        out(paint.yellow("    clipboard backend not installed (pyperclip) - draining the inbox once."))
         interactive = False
     mode = "file" if files else "post"
-    out(f"    probe mode ({mode} level): copy a playlist/user-page link; its new items go to queue.txt.")
-    out("    downloads stay paused until you end probe mode (Esc or Ctrl+C), which resumes the queue.")
+    out(paint.cyan(
+        f"    probe mode ({mode} level): copy a playlist/user-page link; its new items go to queue.txt."
+    ))
+    out(paint.darkgray(
+        "    downloads stay paused until you end probe mode (Esc or Ctrl+C), which resumes the queue."
+    ))
 
     state.update_archive_sets(runtime, knowledge)
     state.update_failed_set(runtime, knowledge)
@@ -393,22 +397,27 @@ def run_mode(
             failed=runtime.failed, archive_check=runtime.archive_check,
         )
         if not result.items and result.counts.get("filehost"):
-            out(f"    {url_host(url)} is a file host: the link has no per-file URLs.")
+            out(paint.yellow(f"    {url_host(url)} is a file host: the link has no per-file URLs."))
             return
         report = format_result(result)
-        for line in report.splitlines():
-            out(line)
+        for position, line in enumerate(report.splitlines()):
+            # the summary line under the probe heading was Gray in the legacy menu
+            out(paint.gray(line) if position == 1 else line)
         if result.new:
             records.append_lines(paths.queue, [item.url for item in result.new])
             for item in result.new:
                 queued.add(knowledge.canon(item.url))
-            out("    downloads are PAUSED: review queue.txt, then resume with menu 1 -> 6.")
+            out(paint.yellow(
+                "    downloads are PAUSED: review queue.txt, then resume with menu 1 -> 6."
+            ))
         log = paths.logs / time.strftime("probe-%Y%m%d-%H%M%S.txt")
         try:
             log.write_text(report + "\n", encoding="utf-8")
         except OSError:
             pass
-        out(f"    {len(result.items)} link(s) found ({result.source or 'nothing'}); list saved to {log}")
+        out(paint.green(
+            f"    {len(result.items)} link(s) found ({result.source or 'nothing'}); list saved to {log}"
+        ))
 
     try:
         if not interactive:
@@ -430,7 +439,7 @@ def run_mode(
                 paths.paused.unlink()
             except OSError:
                 pass
-            out("    probe mode ended - downloads resumed.")
+            out(paint.green("    probe mode ended - downloads resumed."))
         else:
-            out("    probe mode ended - downloads were already paused and stay paused.")
+            out(paint.yellow("    probe mode ended - downloads were already paused and stay paused."))
     return 0

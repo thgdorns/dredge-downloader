@@ -8,11 +8,12 @@ names a site.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
-from .sites import MirrorTable, SiteRule, find_rule, load_global_rule, load_mirrors, load_rules
+from .sites import MirrorTable, SiteRule, load_global_rule, load_mirrors, load_rules
 
 # Query arguments that never identify an item. ``sites.txt`` overrides this with
 # its ``*`` line; the default is the legacy value so a missing config still
@@ -149,6 +150,11 @@ def canon(
     return out
 
 
+@lru_cache(maxsize=512)
+def _id_pattern(rule_id: str) -> re.Pattern[str]:
+    return re.compile(r"^(?:.*-)?(" + rule_id + r")$")
+
+
 def seen_id(url: str, rule_id: str = "") -> str:
     """The site's item id extracted with a ``sites.txt`` rule (bare id).
 
@@ -162,7 +168,7 @@ def seen_id(url: str, rule_id: str = "") -> str:
         u = "http://" + u
     path = re.split(r"[?#]", u, maxsplit=1)[0]
     path = re.sub(r"^[a-z][a-z0-9+.-]*://[^/]*", "", path, flags=re.IGNORECASE)
-    pattern = re.compile(r"^(?:.*-)?(" + rule_id + r")$")
+    pattern = _id_pattern(rule_id)
     for segment in path.strip("/").split("/"):
         m = pattern.match(segment)
         if m:
@@ -224,6 +230,16 @@ class Knowledge:
     rules: dict[str, SiteRule]
     global_rule: SiteRule
     mirrors: MirrorTable
+    # host -> rule, including `also=` aliases; built in __post_init__
+    _index: dict[str, SiteRule] = field(default_factory=dict, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        index: dict[str, SiteRule] = {}
+        for key, rule in self.rules.items():
+            index.setdefault(key, rule)
+            for alias in rule.also:
+                index.setdefault(alias, rule)
+        object.__setattr__(self, "_index", index)
 
     @classmethod
     def load(cls, config_dir: str | Path) -> Knowledge:
@@ -262,14 +278,22 @@ class Knowledge:
         return DEFAULT_KEEPFRAG
 
     def rule(self, url: str) -> SiteRule | None:
-        """Rule for a URL (or a bare host); subdomains match."""
+        """Rule for a URL (or a bare host); subdomains match, most specific wins."""
         h = host(url)
         if not h:
             return None
-        return find_rule(self.rules, h)
+        return self.rule_for_host(h)
 
     def rule_for_host(self, hostname: str) -> SiteRule | None:
-        return find_rule(self.rules, hostname) if hostname else None
+        """Rule for a host: walk the labels from the full host upwards."""
+        if not hostname:
+            return None
+        parts = hostname.lower().removeprefix("www.").split(".")
+        for index in range(len(parts)):
+            rule = self._index.get(".".join(parts[index:]))
+            if rule is not None:
+                return rule
+        return None
 
     def canon(self, url: str) -> str:
         rule = self.rule(url)

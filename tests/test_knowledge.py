@@ -67,3 +67,15 @@ def test_playlist_rule_needs_all_three_keys():
 def test_a_site_without_playlist_keys_is_not_a_creator_page():
     knowledge = build({"example.com": parse_rule("example.com keep=all")})
     assert knowledge.playlist("https://example.com/user/SomeOne") is None
+
+
+def test_rule_lookup_matches_subdomains_and_also_hosts():
+    knowledge = build({
+        "example.com": parse_rule("example.com also=mirror.example"),
+        "ecchi.example.com": parse_rule("ecchi.example.com keep=1"),
+    })
+    assert knowledge.rule("https://www.example.com/x").host == "example.com"
+    assert knowledge.rule("https://deep.sub.example.com/x").host == "example.com"
+    assert knowledge.rule("https://mirror.example/x").host == "example.com"
+    # the most specific rule wins
+    assert knowledge.rule("https://ecchi.example.com/x").host == "ecchi.example.com"

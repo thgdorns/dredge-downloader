@@ -67,21 +67,23 @@ def read_clip_inbox(path: str | Path) -> list[str]:
 def wait_for_change(
     queue: Path,
     inbox: Path,
-    seconds: float,
+    seconds: float = 0.25,
     sleep=None,
 ) -> None:
-    """Idle wait: return as soon as the queue changes or a capture is waiting.
+    """Idle wait: return only when the queue changes or a capture is waiting.
 
-    ``sleep`` is a callable that waits one tick (the menu-aware sleeper in the
-    CLI), so the idle loop stays responsive to the menu key.
+    There is no timeout: the caller prints its "waiting" line once and this
+    sleeps (``seconds`` per tick) until there is something to do, so an idle
+    dredge does not repeat the message every few seconds. ``sleep`` is a
+    callable that waits one tick (the menu-aware sleeper in the CLI), so the
+    menu key still works.
     """
     sleeper = sleep or time.sleep
     try:
         signature = queue.stat().st_mtime_ns
     except OSError:
         signature = 0
-    end = time.monotonic() + seconds
-    while time.monotonic() < end:
+    while True:
         if inbox.exists():
             return
         try:
@@ -89,4 +91,4 @@ def wait_for_change(
                 return
         except OSError:
             pass
-        sleeper(0.25)
+        sleeper(seconds)

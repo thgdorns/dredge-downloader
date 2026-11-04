@@ -166,10 +166,26 @@ into an issue.
 ```
 src/dredge/          the package: cli, worker, orchestrator, plan, archive,
                      records, urls, sites, destinations, engines, menu, tui
-tests/               64 tests, no network and no clipboard required
+tests/               78 tests, no network and no clipboard required
 config/*.example     configuration templates (real files are gitignored)
+docs/                engine-watch (workaround retirement audit) and notes
 legacy/              notes from the private PowerShell original
 ```
+
+## Watching the engines
+
+yt-dlp and gallery-dl change weekly, and some of the code here is a workaround
+for a gap that upstream may close (creator-page listing, locale subdomains,
+aria2c on DASH fragments, YouTube's tracking cookies). Those are recorded in
+`src/dredge/workarounds.json` and audited by:
+
+```powershell
+python -m dredge.watch      # KEEP / RETIRE / DUE / UNKNOWN per workaround
+```
+
+`RETIRE` means the reason is gone - delete the workaround, not just the entry.
+`docs/engine-watch.md` explains the verdicts and the weekly GitHub Action
+(`docs/engine-watch.workflow.yml`).
 
 ## Status
 

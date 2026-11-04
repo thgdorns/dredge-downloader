@@ -1,0 +1,109 @@
+{
+  "schema": 1,
+  "entries": [
+    {
+      "id": "gdl-flat",
+      "title": "Creator pages are expanded with yt-dlp --flat-playlist instead of a gallery-dl crawl",
+      "engine": "gallery-dl",
+      "added": "2026-11-04",
+      "where": [
+        "src/dredge/worker.py:_expand_flat",
+        "src/dredge/sites.py:list"
+      ],
+      "retire_when": "gallery-dl can print one item URL per post without resolving download URLs",
+      "issue": "https://github.com/mikf/gallery-dl/issues/9859",
+      "checks": [
+        {
+          "kind": "help_flag",
+          "engine": "gallery-dl",
+          "flags": ["--list", "--flat", "--items-only"]
+        },
+        {
+          "kind": "issue",
+          "url": "https://github.com/mikf/gallery-dl/issues/9859"
+        }
+      ]
+    },
+    {
+      "id": "yt-locale",
+      "title": "Locale tube hosts are rewritten to the bare domain before yt-dlp sees them",
+      "engine": "yt-dlp",
+      "added": "2026-10-23",
+      "where": [
+        "src/dredge/urls.py:lang_host",
+        "config/mirrors.example.txt"
+      ],
+      "retire_when": "the site extractor matches a two-letter locale subdomain",
+      "issue": "https://github.com/yt-dlp/yt-dlp/issues/17995",
+      "checks": [
+        {
+          "kind": "extractor",
+          "engine": "yt-dlp",
+          "url": "https://br.youporn.com/watch/293578801",
+          "expect_not": "generic",
+          "timeout": 120
+        },
+        {
+          "kind": "issue",
+          "url": "https://github.com/yt-dlp/yt-dlp/issues/17995"
+        }
+      ]
+    },
+    {
+      "id": "yt-native-youtube",
+      "title": "YouTube uses yt-dlp's native downloader: aria2c opens -x connections per DASH fragment",
+      "engine": "yt-dlp",
+      "added": "2026-10-28",
+      "where": [
+        "src/dredge/sites.py:native",
+        "config/sites.example.txt"
+      ],
+      "retire_when": "aria2c stops multiplying connections per fragment - re-measure a 900 MB DASH video",
+      "issue": "",
+      "checks": [
+        {
+          "kind": "manual",
+          "recheck_after_days": 180,
+          "last_verified": "2026-10-28"
+        }
+      ]
+    },
+    {
+      "id": "yt-st-cookies",
+      "title": "YouTube click-tracking cookies (ST-*) are dropped on export",
+      "engine": "yt-dlp",
+      "added": "2026-11-01",
+      "where": [
+        "src/dredge/cookies.py:drop_blocked",
+        "src/dredge/sites.py:cookiedrop"
+      ],
+      "retire_when": "yt-dlp filters click-tracking cookies itself, or YouTube stops setting ST-*",
+      "issue": "",
+      "checks": [
+        {
+          "kind": "manual",
+          "recheck_after_days": 180,
+          "last_verified": "2026-11-04"
+        }
+      ]
+    },
+    {
+      "id": "yt-final-file",
+      "title": "A yt-dlp verdict needs a final file on disk (a zero exit is not a download)",
+      "engine": "yt-dlp",
+      "added": "2026-10-26",
+      "where": [
+        "src/dredge/worker.py:download"
+      ],
+      "retire_when": "yt-dlp exits non-zero, or verifies its own merge, when only fragments remain",
+      "issue": "",
+      "checks": [
+        {
+          "kind": "manual",
+          "recheck_after_days": 180,
+          "last_verified": "2026-11-04"
+        }
+      ]
+    }
+  ]
+}

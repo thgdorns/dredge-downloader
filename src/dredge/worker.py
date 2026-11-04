@@ -13,7 +13,6 @@ for the next pass), ``FAILED``, ``OFFLINE``.
 from __future__ import annotations
 
 import re
-import shutil
 import tempfile
 import threading
 import time
@@ -338,7 +337,7 @@ class Worker:
 
         # --- tier 1f: file-host engines ---------------------------------
         if not engine and not dry and dl_rule and dl_rule.engine and dl_rule.engine != "gdl":
-            engine = self._filehost_engine(dl, final_dest, dl_rule, slot, files_manifest)
+            engine = self._filehost_engine(dl, final_dest, dl_rule, files_manifest)
 
         # --- tiers 2-3: yt-dlp ------------------------------------------
         if rule and rule.tpl:
@@ -601,7 +600,6 @@ class Worker:
         dl: str,
         dest: Path,
         rule: SiteRule,
-        slot: int,
         files_manifest: Path,
     ) -> str | None:
         name = rule.engine
@@ -610,37 +608,17 @@ class Worker:
             self._lane(f"[{name}] not installed - cannot fetch this host without it (engine= in sites.txt)")
             return None
         self._lane(f"[{name}] {dl}")
-        # Scratch space lives under data/state, never in the library: the
-        # destination only ever receives finished files. The mover below is
-        # only safe on one volume, where a finished file can be renamed into
-        # place; across drives everything is copied after the engine exits.
-        stage = self.paths.state / "stage" / f"lane{slot}"
-        _reset_stage(stage)
-        self._lane(f"[{name}] staging {stage}")
-        same_volume = stage.drive.lower() == dest.drive.lower()
-        moved: list[str] = []
-        stop = threading.Event()
-
-        def mover() -> None:
-            while not stop.is_set():
-                _move_stage(stage, dest, moved)
-                stop.wait(2)
-
-        thread: threading.Thread | None = None
-        if name == "megadl" and same_volume:
-            thread = threading.Thread(target=mover, daemon=True)
-            thread.start()
+        # Download straight into the destination: megatools keeps its partial
+        # data in .megatmp.<id> files next to the target, so a killed run can
+        # resume instead of starting over. Nothing is deleted on failure.
+        before = _file_snapshot(dest)
         if name == "megadl":
-            args = [exe, "dl", "--path", str(stage), "--no-ask-password",
+            args = [exe, "dl", "--path", str(dest), "--no-ask-password",
                     "--ignore-config-file", dl]
         else:
-            args = [exe, "-o", str(stage), "-m", "4", "-t", "2", dl]
+            args = [exe, "-o", str(dest), "-m", "4", "-t", "2", dl]
         rc, out = run(args, cwd=self.paths.root, sink=self._sink, stop_on=_QUOTA_STOP)
-        stop.set()
-        if thread:
-            thread.join(timeout=15)
-        _move_stage(stage, dest, moved)
-        moved = list(dict.fromkeys(moved))
+        moved = sorted(_file_snapshot(dest) - before)
         if moved:
             try:
                 files_manifest.write_text(
@@ -656,9 +634,10 @@ class Worker:
             self._lane(f"[{name}] exit {rc}")
             if moved:
                 self._lane(f"[{name}] kept {len(moved)} finished file(s)")
+            if any(p.is_file() for p in dest.rglob(".megatmp.*")):
+                self._lane(f"[{name}] partial data kept - the next run resumes it")
             if re.search(r"(?i)over ?quota|transfer quota|quota exceeded", out):
                 self._lane(f"[{name}] MEGA transfer quota for this IP is spent - retry on a later run")
-        _remove_tree(stage)
         return None
 
     def _write_rows(
@@ -742,47 +721,12 @@ def _temp_archive() -> str:
     return str(Path(tempfile.gettempdir()) / f"dredge-archive-{uuid.uuid4().hex}.txt")
 
 
-def _reset_stage(stage: Path) -> None:
-    _remove_tree(stage)
-    stage.mkdir(parents=True, exist_ok=True)
-
-
-def _remove_tree(path: Path) -> None:
-    if not path.exists():
-        return
-    for item in sorted(path.rglob("*"), reverse=True):
-        try:
-            item.unlink() if item.is_file() else item.rmdir()
-        except OSError:
-            pass
-    try:
-        path.rmdir()
-    except OSError:
-        pass
-
-
-def _move_stage(stage: Path, dest: Path, moved: list[str]) -> None:
-    if not stage.is_dir():
-        return
-    for item in stage.rglob("*"):
-        if not item.is_file() or item.name.startswith(".megatmp."):
-            continue
-        rel = item.relative_to(stage)
-        target = dest / rel
-        target.parent.mkdir(parents=True, exist_ok=True)
-        final = unique_path(target)
-        try:
-            item.replace(final)
-            moved.append(str(final))
-        except OSError:
-            # os.replace works within one volume. A different drive means a
-            # copy (only reached after the engine exited, so the file is
-            # closed); a same-drive failure is usually the engine still
-            # writing it, so leave it for the next tick.
-            if item.drive.lower() == target.drive.lower():
-                continue
-            try:
-                shutil.move(str(item), str(final))
-                moved.append(str(final))
-            except OSError:
-                pass
+def _file_snapshot(folder: Path) -> set[str]:
+    """Files under ``folder``, ignoring megatools' in-progress temp files."""
+    if not folder.is_dir():
+        return set()
+    found: set[str] = set()
+    for item in folder.rglob("*"):
+        if item.is_file() and not item.name.startswith(".megatmp."):
+            found.add(str(item))
+    return found

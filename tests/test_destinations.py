@@ -1,5 +1,8 @@
+﻿import sys
 from dataclasses import replace
 from pathlib import Path
+
+import pytest
 
 from dredge import destinations
 from dredge.config import Paths, Settings
@@ -83,6 +86,7 @@ def fallback_settings(tmp_path, **overrides):
     return replace(settings, **values)
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="drive letters are a Windows concept")
 def test_fallback_moves_both_roots_when_the_primary_is_gone(tmp_path, monkeypatch):
     settings = fallback_settings(tmp_path)
     free = {"Z": -1.0, "D": 100.0, "G": 500.0}
@@ -95,6 +99,7 @@ def test_fallback_moves_both_roots_when_the_primary_is_gone(tmp_path, monkeypatc
     assert "not mounted" in out.fallback_note
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="drive letters are a Windows concept")
 def test_a_full_primary_moves_to_the_first_drive_above_the_bar(tmp_path, monkeypatch):
     settings = fallback_settings(tmp_path)
     free = {"Z": 5.0, "D": 10.0, "G": 500.0}
@@ -105,6 +110,7 @@ def test_a_full_primary_moves_to_the_first_drive_above_the_bar(tmp_path, monkeyp
     assert out.dest_porn == Path("G:/OTR/porn")
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="drive letters are a Windows concept")
 def test_nothing_changes_when_the_primary_has_room(tmp_path, monkeypatch):
     settings = fallback_settings(tmp_path)
     monkeypatch.setattr(destinations, "free_gb", lambda p: 500.0)

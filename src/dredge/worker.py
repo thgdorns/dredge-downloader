@@ -24,6 +24,7 @@ from .archive import format_row
 from .config import AV_EXT, MEDIA_EXT, OFFLINE_RE, RATE_RE, Paths, Settings
 from .destinations import destination_for, filehost_folder
 from .engines import Engines, dir_signature, probe_down, produced, run
+from .mega import folder_name as mega_folder_name
 from .sites import SiteRule
 from .urls import Knowledge, Playlist
 
@@ -212,7 +213,9 @@ class Worker:
             dest_tpl = target.tpl
         else:
             dest_root = Path(dest)
-        folder = filehost_folder(url, self.knowledge, self.filehosts)
+        folder = filehost_folder(
+            url, self.knowledge, self.filehosts, mega_name=mega_folder_name(url)
+        )
         final_dest = dest_root / folder if folder else dest_root
         if folder:
             self._lane(f"[filehost] writing into {folder}\\")

@@ -369,3 +369,35 @@ def test_gallery_dl_archived_file_missing_here_is_recorded_not_fetched(
     assert not any("--download-archive" in call for call in calls)
     row = (tmp_path / "lane1.archive").read_text(encoding="utf-8").strip()
     assert "example.com/post/1" in row
+
+
+def test_a_mega_folder_uses_its_online_name(tmp_path, monkeypatch):
+    rule = parse_rule("mega.nz engine=megadl")
+    paths = Paths(tmp_path)
+    settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
+    targets: list[Path] = []
+
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+        target = Path(args[args.index("--path") + 1])
+        targets.append(target)
+        (target / "clip.mp4").write_bytes(b"x" * 200_000)
+        return 0, ""
+
+    monkeypatch.setattr(worker_module, "run", fake)
+    monkeypatch.setattr(worker_module, "mega_folder_name", lambda url: "VR")
+    worker = Worker(
+        paths, settings, Engines(megadl="megatools"), knowledge(rule),
+        filehosts=("mega.nz",),
+    )
+    verdict = worker.download(
+        "https://mega.nz/folder/ABC#key",
+        dest=tmp_path / "dest",
+        lane_log=tmp_path / "lane1.log",
+        result=tmp_path / "lane1.result",
+        archive=tmp_path / "lane1.archive",
+    )
+
+    assert verdict == "OK|megadl"
+    assert targets == [tmp_path / "dest" / "VR"]
+    assert (tmp_path / "dest" / "VR" / "clip.mp4").exists()
+

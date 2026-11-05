@@ -63,6 +63,10 @@ py -3.11 -m venv .venv
 `megatools` and `mediafire_rs` are optional: install them into a folder and
 point `megatools=` / `mediafire=` in `config/dredge.conf` at it.
 
+A MEGA folder link is saved into a folder named after the online folder
+(decrypted from the link's key, e.g. `VR`); links whose folders have the same
+name merge into one destination folder.
+
 ## Quick start
 
 ```powershell

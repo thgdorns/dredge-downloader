@@ -1,0 +1,4 @@
+# Hosts that yt-dlp's generic extractor may handle in strict mode.
+# One host per line; subdomains of a listed host are allowed.
+# Example:
+# example.com

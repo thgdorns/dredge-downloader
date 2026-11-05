@@ -20,6 +20,7 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import refresh as refresh_mod
 from .archive import format_row
 from .config import AV_EXT, MEDIA_EXT, OFFLINE_RE, RATE_RE, Paths, Settings
 from .destinations import destination_for, filehost_folder
@@ -200,6 +201,7 @@ class Worker:
         flat: bool = False,
         dest_tpl: str = "",
         ignore_records: bool = False,
+        refresh: bool = False,
         lane_log: str | Path | None = None,
         result: str | Path | None = None,
         archive: str | Path | None = None,
@@ -240,8 +242,9 @@ class Worker:
 
         dry = self.settings.dry_run
         sim = ["--simulate"] if dry else []
-        ignore = bool(ignore_records) or self.settings.ignore_records
+        ignore = bool(ignore_records) or self.settings.ignore_records or refresh
         ignore_args = ["--no-download-archive"] if ignore else []
+        refresh_args = ["--force-overwrites"] if refresh else []
 
         rule = self.knowledge.rule(url)
         dl_rule = self.knowledge.rule(dl) or rule
@@ -264,6 +267,51 @@ class Worker:
                 if verdict:
                     return self._finish(verdict, result)
 
+        refresh_meta = None
+        refresh_filter = ""
+        old_folder = ""
+        known: tuple[str, ...] = ()
+        folder_ok = True
+        # Records check off is a from-scratch fetch; it also skips the ledger.
+        ledger_check = (
+            refresh and not dry and self.engines.gdl
+            and not (ignore_records or self.settings.ignore_records)
+        )
+        if ledger_check:
+            refresh_meta = refresh_mod.fetch_post(self.engines.gdl, self.paths, dl)
+            canon = self.knowledge.canon(url)
+            old = refresh_mod.load(self.paths.revisions).get(canon)
+            old_folder = old.folder if old else ""
+            # If the recorded post folder is gone (a deleted post or a drive
+            # fallback), the hashes cannot prove the local files still exist.
+            folder_ok = not old_folder or Path(old_folder).is_dir()
+            if (
+                refresh_meta
+                and old
+                and folder_ok
+                and refresh_meta.edited
+                and refresh_meta.edited == old.edited
+                and set(refresh_meta.hashes) <= set(old.hashes)
+            ):
+                self._lane("[refresh] no newer revision - nothing to download")
+                return self._finish("OK|gallery-dl", result)
+            known = old.hashes if (old and folder_ok) else ()
+            refresh_filter = refresh_mod.hash_filter(known)
+            if old and not folder_ok:
+                self._lane(
+                    f"[refresh] recorded folder is gone ({old_folder}) - full refresh"
+                )
+            if refresh_meta:
+                self._lane(
+                    f"[refresh] {len(refresh_meta.hashes)} file(s) in the post; "
+                    + ("downloading only changed files" if refresh_filter
+                       else "downloading the whole post")
+                )
+            else:
+                self._lane(
+                    "[refresh] no single-post metadata - re-downloading the post"
+                )
+
         playlist = self.knowledge.playlist(url)
         page_ids: list[str] = []
         gdl_handled = False
@@ -276,6 +324,10 @@ class Worker:
         )
         try:
             files_manifest.unlink()
+        except OSError:
+            pass
+        try:
+            Path(str(files_manifest) + ".hashes").unlink()
         except OSError:
             pass
         extractor_file = self.paths.lane_extractor(slot)
@@ -293,10 +345,16 @@ class Worker:
             gallery = self._gallery_tier(
                 url, dl, final_dest, flat, folder, dl_rule, playlist,
                 files_manifest, sim, ignore, archive, sig0, dry,
+                refresh=refresh, refresh_filter=refresh_filter,
             )
             engine = gallery.engine
             page_ids = gallery.page_ids
             gdl_handled = gallery.handled
+            if gallery.engine and not dry and not playlist:
+                self._remember_revision(
+                    url, refresh_meta, files_manifest, refresh,
+                    folder=old_folder, known=known, folder_ok=folder_ok,
+                )
 
         # --- tier 1f: file-host engines ---------------------------------
         if (
@@ -342,8 +400,9 @@ class Worker:
             mark = len(self._buffer)
             rc, _ = run(
                 [self.engines.yt, "--ignore-config", "--config-locations",
-                 str(self.paths.ytdlp_conf), *yt_args, *site_yt, *ignore_args, *common,
-                 *manifest_args, *progress_args, *extractor_args, *sim, dl],
+                 str(self.paths.ytdlp_conf), *yt_args, *site_yt, *ignore_args,
+                 *refresh_args, *common, *manifest_args, *progress_args,
+                 *extractor_args, *sim, dl],
                 cwd=self.paths.root, sink=self._sink,
             )
             if rc == 0 and produced(final_dest, sig0, self.text, dry):
@@ -364,7 +423,7 @@ class Worker:
             rc, _ = run(
                 [self.engines.yt, "--ignore-config", "--config-locations",
                  str(self.paths.ytdlp_conf), "--downloader", "native", *site_yt,
-                 *ignore_args, *common, *manifest_args, *progress_args,
+                 *ignore_args, *refresh_args, *common, *manifest_args, *progress_args,
                  *extractor_args, dl],
                 cwd=self.paths.root, sink=self._sink,
             )
@@ -393,8 +452,9 @@ class Worker:
             self._lane(f"[yt-dlp-generic] {url}")
             rc, _ = run(
                 [self.engines.yt, "--ignore-config", "--config-locations",
-                 str(self.paths.ytdlp_generic_conf), *ignore_args, *site_yt, *common3,
-                 *manifest_args, *progress_args, *extractor_args, *sim, dl],
+                 str(self.paths.ytdlp_generic_conf), *ignore_args, *refresh_args,
+                 *site_yt, *common3, *manifest_args, *progress_args,
+                 *extractor_args, *sim, dl],
                 cwd=self.paths.root, sink=self._sink,
             )
             if rc == 0 and produced(final_dest, sig0, self.text, dry):
@@ -418,9 +478,15 @@ class Worker:
             gallery = self._gallery_tier(
                 url, dl, final_dest, flat, folder, dl_rule, playlist,
                 files_manifest, sim, ignore, archive, dir_signature(final_dest), dry,
+                refresh=refresh, refresh_filter=refresh_filter,
             )
             engine = gallery.engine
             page_ids = gallery.page_ids
+            if gallery.engine and not dry and not playlist:
+                self._remember_revision(
+                    url, refresh_meta, files_manifest, refresh,
+                    folder=old_folder, known=known, folder_ok=folder_ok,
+                )
 
         if engine:
             verdict = f"OK|{engine}"
@@ -475,6 +541,9 @@ class Worker:
         archive: str | Path | None,
         sig: str,
         dry: bool,
+        *,
+        refresh: bool = False,
+        refresh_filter: str = "",
     ) -> GalleryResult:
         """One gallery-dl attempt; used first or as the yt-dlp fallback."""
         result = GalleryResult()
@@ -482,6 +551,7 @@ class Worker:
         args = self._gdl_args(
             dl, final_dest, flat or bool(folder), dl_rule, playlist,
             files_manifest, sim, ignore,
+            refresh=refresh, refresh_filter=refresh_filter,
         )
         if playlist and archive:
             result.pages_manifest = Path(str(archive) + ".pages")
@@ -492,7 +562,7 @@ class Worker:
             args = ["--Print-to-file", "after:{id}", str(result.pages_manifest)] + args
 
         rc, _ = run([self.engines.gdl, *args], cwd=self.paths.root, sink=self._sink)
-        if ignore:
+        if ignore and not refresh:
             self._auto_rename(args, files_manifest)
         out = self.text
         unsupported = bool(re.search(r"Unsupported URL|is not a valid URL", out))
@@ -529,6 +599,38 @@ class Worker:
             result.handled = True
         return result
 
+    def _remember_revision(
+        self,
+        url: str,
+        meta: refresh_mod.PostMeta | None,
+        files_manifest: Path,
+        refresh: bool,
+        *,
+        folder: str = "",
+        known: tuple[str, ...] = (),
+        folder_ok: bool = True,
+    ) -> None:
+        """Keep the last-seen revision so the next refresh can stay incremental."""
+        canon = self.knowledge.canon(url)
+        if refresh:
+            downloaded = refresh_mod.manifest_hashes(files_manifest)
+            folder = folder or refresh_mod.manifest_folder(files_manifest)
+            if meta:
+                current = set(meta.hashes)
+                kept = [h for h in known if folder_ok and h in current]
+                hashes = tuple(dict.fromkeys((*kept, *downloaded)))
+                refresh_mod.remember(
+                    self.paths.revisions, canon, meta.edited, hashes, folder
+                )
+            elif downloaded:
+                refresh_mod.remember(
+                    self.paths.revisions, canon, "", downloaded, folder
+                )
+        else:
+            refresh_mod.remember_from_manifest(
+                self.paths.revisions, canon, files_manifest
+            )
+
     def _ytdlp_author(self, url: str) -> str:
         """The uploader's display name from yt-dlp (gallery-dl often has the handle)."""
         if not self.engines.yt:
@@ -555,6 +657,9 @@ class Worker:
         files_manifest: Path,
         sim: list[str],
         ignore: bool,
+        *,
+        refresh: bool = False,
+        refresh_filter: str = "",
     ) -> list[str]:
         args = ["--config-ignore", "-c", str(self.paths.gallery_conf)]
         if self.paths.gallery_runtime.exists():
@@ -567,8 +672,20 @@ class Worker:
             author = self._ytdlp_author(dl)
             if author:
                 args += ["-o", f"directory={author}"]
+        if refresh:
+            # The archive would skip a changed file at an existing position;
+            # --no-skip overwrites it in place, so no .1 duplicate is created.
+            args += ["--no-skip"]
+        if refresh_filter:
+            args += ["--filter", refresh_filter]
         if files_manifest:
             args += ["--Print-to-file", "after:{_path}", str(files_manifest)]
+            # {hash} is empty on extractors without a content hash; the ledger
+            # simply ignores blank lines.
+            args += [
+                "--Print-to-file", "after:{hash}",
+                str(Path(str(files_manifest) + ".hashes")),
+            ]
         if ignore:
             temp = Path(_temp_archive())
             self._temps.append(temp)

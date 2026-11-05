@@ -100,11 +100,12 @@ copy config\gallery-dl.conf.example config\gallery-dl.conf
 | `--no-update` / `--no-cookies` | skip the engine update / cookie refresh |
 | `--strict-generic` | strict mode: a generic-extractor result only counts on hosts in `generic-sites.txt` |
 | `--ignore-records` | ignore every record and engine archive (menu 1 -> 1) |
+| `--refresh URL` | re-check one post for a newer revision (repeatable; menu 1 -> 9) |
 | `--root DIR` | folder holding `config/`, `data/`, `logs/` (default: cwd) |
 
 Press **M** while it runs to open the menu. Inside: records check on/off, retry
 failed, retry skipped, skip failed, probe files, lane count, pause/resume,
-strict mode, and shortcuts to the record files. **Esc** goes back.
+strict mode, refresh post, and shortcuts to the record files. **Esc** goes back.
 
 The lane count chosen in the menu (item 6) is written back to
 `config/dredge.conf` (`max_downloads = N`), so the next start uses it;
@@ -171,7 +172,7 @@ keeps it for a pipe (for example `... | less -R`).
    (`.js`, `.css`) or a preview image in the manifest is not a download. Size is
    not a signal: a short clip is kept. `min=` in `sites.txt` is the opt-in rule
    for sites that split a video into segments.
-6. With **strict mode** on (menu 1 -> 7), a yt-dlp tier that falls back to the
+6. With **strict mode** on (menu 1 -> 8), a yt-dlp tier that falls back to the
    `generic` extractor only counts on hosts listed in `generic-sites.txt`;
    everything else fails with a message naming the host to add.
 7. On success the URL, file names and sizes are appended to
@@ -200,6 +201,33 @@ there so you can review them.
 
 `engine=yt-dlp` runs the yt-dlp tiers first and keeps gallery-dl as a fallback,
 for image pages or URLs yt-dlp cannot take. `engine=gdl` stops the chain early.
+
+### Updating an already-downloaded post
+
+gallery-dl's archive records a file by its position inside a post
+(`{service}_{user}_{id}_{num}`), so a revision that replaces a file at an
+existing position looks like a duplicate. `--refresh URL` (or menu 1 -> 9)
+re-checks one post properly:
+
+- it reads the post metadata without downloading;
+- if the post's `edited` stamp and every file hash match the previous refresh,
+  it stops;
+- otherwise it downloads only the files whose content hash is new and
+  overwrites the old copy in place, so no `name.1.ext` duplicate appears.
+
+The last seen revision is kept in `data/state/revisions.tsv`. Its hashes come
+from the files gallery-dl actually wrote, not from the post's attachment list,
+so an attachment that failed or is still pending is not marked as present.
+Posts downloaded after this feature is enabled are incremental from their first
+refresh; a post that predates the ledger has no hashes yet and is downloaded in
+full once. The recorded post folder is part of the entry - if it is gone (a
+deleted post or a destination fallback to another drive), the refresh downloads
+the post in full instead of trusting the hashes. If you delete an individual
+file from an otherwise intact post, `--refresh --ignore-records` fetches that
+post from scratch. Attachments removed from a post are left on disk, and a
+title change can leave copies under the old title because the title is part of
+gallery-dl's filename. Use `--refresh` while dredge is stopped, or menu 1 -> 9
+while it is running (the menu action uses the same lane code).
 
 `author=yt-dlp` makes gallery-dl use yt-dlp's uploader **display name** as the
 creator folder. gallery-dl's own metadata only has the handle for some sites
@@ -267,7 +295,7 @@ into an issue.
 ```
 src/dredge/          the package: cli, worker, orchestrator, plan, archive,
                      records, urls, sites, destinations, engines, menu, tui
-tests/               78 tests, no network and no clipboard required
+tests/               unit tests, no network and no clipboard required
 config/*.example     configuration templates (real files are gitignored)
 docs/                engine-watch (workaround retirement audit) and notes
 legacy/              notes from the private PowerShell original
@@ -296,8 +324,9 @@ python -m dredge.watch      # KEEP / RETIRE / DUE / UNKNOWN per workaround
 - [x] worker tier chain, junk guard, auto-rename, file-host staging
 - [x] lane pool, serial hosts, destination fallback, space guard
 - [x] console menu, records check, retry/skip failed
+- [x] revision-aware `--refresh` for updated posts
 - [x] clipboard capture without CopyQ
-- [x] probe mode (`--probe`, `--probe-files`, menu 1 -> 4)
+- [x] probe mode (`--probe`, `--probe-files`, menu 1 -> 5)
 - [ ] Linux support beyond the pure-Python parts
 
 ## License

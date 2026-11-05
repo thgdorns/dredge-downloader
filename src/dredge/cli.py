@@ -16,7 +16,8 @@ import sys
 import time
 from pathlib import Path
 
-from . import __version__, clipboard, cookies, menu, paint, state
+from . import __version__, clipboard, cookies, menu, paint, records, state
+from .archive import append_pending, merge_pending
 from .config import Paths, Runtime, Settings, write_gallery_runtime
 from .destinations import apply_fallback, load_domains
 from .engines import Engines, run
@@ -65,6 +66,8 @@ def build_parser() -> argparse.ArgumentParser:
                              "in generic-sites.txt")
     parser.add_argument("--ignore-records", action="store_true",
                         help="ignore downloads.tsv, fail/skip lists and the engine archives")
+    parser.add_argument("--refresh", action="append", default=[], metavar="URL",
+                        help="re-check one post for a newer revision and overwrite changed files")
     parser.add_argument("--version", action="version", version=__version__)
 
     worker = parser.add_argument_group("worker (internal - one URL)")
@@ -137,6 +140,9 @@ def _run_instance(
 
     runtime = Runtime(paths, settings)
 
+    if args.refresh:
+        return run_refresh(runtime, knowledge, engines, args.refresh)
+
     if args.probe or args.probe_files:
         return run_probe(runtime, knowledge, engines, files=args.probe_files)
 
@@ -144,6 +150,7 @@ def _run_instance(
         show_dredge_menu(
             runtime, knowledge,
             probe_files=lambda: run_probe(runtime, knowledge, engines, files=True),
+            refresh_post=refresh_callback(runtime, knowledge, engines),
         )
         if not (settings.once or settings.dry_run):
             return 0
@@ -299,12 +306,95 @@ def run_worker(
         dest=Path(args.dest) if args.dest else None,
         flat=args.flat,
         ignore_records=args.ignore_records,
+        refresh=bool(args.refresh),
         lane_log=args.lane_log or None,
         result=args.result or None,
         archive=args.archive or None,
     )
     print(verdict)
     return 0
+
+
+def refresh_callback(runtime: Runtime, knowledge: Knowledge, engines: Engines):
+    """The menu's "refresh post" action: one URL, revision-aware."""
+
+    def refresh_post(url: str) -> None:
+        # The menu runs while a pass may be active; appending the rows is safe,
+        # but rewriting downloads.tsv here would race with the orchestrator's
+        # next merge. Leave the merge to the pass.
+        run_refresh(runtime, knowledge, engines, [url], merge=False)
+
+    return refresh_post
+
+
+def run_refresh(
+    runtime: Runtime,
+    knowledge: Knowledge,
+    engines: Engines,
+    urls: list[str],
+    *,
+    merge: bool = True,
+) -> int:
+    """``--refresh`` / menu 1 -> 9: re-check a post for a newer revision.
+
+    Unlike ``--ignore-records`` this is not a from-scratch download: the worker
+    reads the post metadata, drops files whose content hash is unchanged, and
+    overwrites the changed ones in place.
+    """
+    paths = runtime.paths
+    settings = runtime.settings
+    if not settings.dry_run:
+        state.update_archive_sets(runtime, knowledge)
+    worker = Worker(
+        paths, settings, engines, knowledge,
+        filehosts=load_domains(paths.filehosts),
+    )
+    lane_log = paths.logs / "refresh.log"
+    result = paths.logs / "refresh.result"
+    lane_archive = paths.logs / "refresh.archive"
+    ok = 0
+    for url in urls:
+        for stale in (result, lane_archive):
+            try:
+                stale.unlink()
+            except OSError:
+                pass
+        print(paint.darkgray(f"[{_clock()}] refresh: {url}"))
+        verdict = worker.download(
+            url, refresh=True, lane_log=lane_log, result=result,
+            archive=lane_archive,
+        )
+        try:
+            rows = [
+                line.strip() for line in lane_archive.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+        except OSError:
+            rows = []
+        if rows and not settings.dry_run:
+            append_pending(paths.fold_pending, rows)
+            if merge:
+                merge_pending(
+                    paths.fold_pending, paths.archive,
+                    runtime.seen, runtime.archived, knowledge,
+                )
+        if verdict.startswith("OK|"):
+            ok += 1
+            _clear_failure(paths, knowledge, url)
+        print(f"[{_clock()}] {verdict}  {url}")
+    if ok:
+        state.update_failed_set(runtime, knowledge)
+    return 0 if ok == len(urls) else 1
+
+
+def _clear_failure(paths: Paths, knowledge: Knowledge, url: str) -> None:
+    """A successful refresh resolves a previous failure record."""
+    key = knowledge.canon(url)
+    for path in (paths.fail, paths.offline):
+        lines = records.read_lines(path)
+        kept = [line for line in lines if knowledge.canon(line) != key]
+        if len(kept) != len(lines):
+            records.write_lines(path, kept)
 
 
 def run_loop(runtime: Runtime, knowledge: Knowledge, engines: Engines) -> int:
@@ -321,6 +411,7 @@ def run_loop(runtime: Runtime, knowledge: Knowledge, engines: Engines) -> int:
             show_dredge_menu(
                 runtime, knowledge,
                 probe_files=lambda: run_probe(runtime, knowledge, engines, files=True),
+                refresh_post=refresh_callback(runtime, knowledge, engines),
             )
         finally:
             opened.clear()

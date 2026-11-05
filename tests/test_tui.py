@@ -91,6 +91,32 @@ def test_checks_menu_reports_the_current_switches(tmp_path, monkeypatch):
     assert colors[0] == "gray"
 
 
+def test_refresh_post_option_asks_for_a_url(tmp_path, monkeypatch):
+    _, runtime, knowledge = setup(tmp_path)
+    asked: list[str] = []
+    answers = iter(["9", None])
+    monkeypatch.setattr(tui.menu, "select", lambda *a, **k: next(answers, None))
+    monkeypatch.setattr(
+        tui.menu, "prompt_line", lambda prompt: "https://example.com/post/1"
+    )
+
+    tui.show_checks_menu(runtime, knowledge, refresh_post=asked.append)
+
+    assert asked == ["https://example.com/post/1"]
+
+
+def test_refresh_post_option_rejects_a_non_url(tmp_path, monkeypatch):
+    _, runtime, knowledge = setup(tmp_path)
+    asked: list[str] = []
+    answers = iter(["9", None])
+    monkeypatch.setattr(tui.menu, "select", lambda *a, **k: next(answers, None))
+    monkeypatch.setattr(tui.menu, "prompt_line", lambda prompt: "not a url")
+
+    tui.show_checks_menu(runtime, knowledge, refresh_post=asked.append)
+
+    assert asked == []
+
+
 def test_strict_mode_option_toggles(tmp_path, monkeypatch):
     _, runtime, knowledge = setup(tmp_path)
     answers = iter(["8"])

@@ -22,6 +22,18 @@ def test_worker_flags():
     assert args.archive == "a.tsv"
 
 
+def test_refresh_takes_one_or_more_post_urls():
+    args = build_parser().parse_args(
+        ["--refresh", "https://example.com/post/1",
+         "--refresh", "https://example.com/post/2"]
+    )
+
+    assert args.refresh == [
+        "https://example.com/post/1",
+        "https://example.com/post/2",
+    ]
+
+
 def test_version_is_reported():
     assert __version__
 

@@ -194,7 +194,7 @@ example.com   keep=all min=0 id=[0-9]{6,} native list=^/(?:profile/[^/]+|videos)
 
 `yt=ARGS` passes extra yt-dlp arguments for a host (comma-separated), for
 example `yt=--write-description`. The iwara rule uses that; the kemono,
-pawchive and iwara sections of `gallery-dl.conf` enable the `metadata`
+pawchive, iwara and fantia sections of `gallery-dl.conf` enable the `metadata`
 postprocessor, so the post or video description is saved next to the media as
 a sidecar. Neither engine follows links found in a description — the sidecar is
 there so you can review them.
@@ -223,8 +223,10 @@ deleted, the folder has no local record and the next refresh downloads the post
 again. The sizes in `downloads.tsv` are local and the post metadata has no
 remote size, so size is not used for the check.
 
-fantia has no content hash, so its `file_id` is used; a post that gains a new
-file id is downloaded again in full. `--refresh --ignore-records` skips the
+fantia has no content hash, so its `file_id` is used; enable the same default
+`metadata` postprocessor for fantia so the sidecars exist. A fantia post that
+gains a new file id is downloaded again in full; without sidecars the refresh
+simply downloads it again. `--refresh --ignore-records` skips the
 check and always downloads. Removed attachments are left on disk, and a title
 change can leave copies under the old title because the title is part of
 gallery-dl's filename. Use `--refresh` while dredge is stopped, or menu 1 -> 9

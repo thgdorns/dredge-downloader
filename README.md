@@ -240,7 +240,9 @@ its new files, re-download it on purpose:
 
 - `--ignore-records`, or menu 1 -> 1 to turn the records check off, then re-add
   the post. This bypasses `downloads.tsv` and the engine archives and fetches
-  the post from scratch.
+  the post from scratch. Files already on disk are moved aside as
+  `name (1).ext` before the fresh copies download, so nothing is overwritten;
+  review the folder and delete what you do not want.
 - `--refresh URL` does **not** do that: it only bypasses the TSV duplicate
   check and still honours the position archive, so archived positions stay
   skipped.

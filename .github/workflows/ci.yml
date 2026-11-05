@@ -24,3 +24,27 @@ jobs:
       - run: python -m pip install -e ".[dev]"
       - run: ruff check .
       - run: pytest
+      - name: Linux CLI smoke test
+        if: runner.os == 'Linux' && matrix.python == '3.13'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install yt-dlp gallery-dl
+          root="$RUNNER_TEMP/dredge-smoke"
+          mkdir -p "$root/config" "$root/downloads"
+          cp config/sites.example.txt "$root/config/sites.txt"
+          cp config/mirrors.example.txt "$root/config/mirrors.txt"
+          cp config/filehosts.example.txt "$root/config/filehosts.txt"
+          cp config/generic-sites.example.txt "$root/config/generic-sites.txt"
+          cp config/ytdlp.conf.example "$root/config/ytdlp.conf"
+          cp config/ytdlp-generic.conf.example "$root/config/ytdlp-generic.conf"
+          cp config/gallery-dl.conf.example "$root/config/gallery-dl.conf"
+          cat > "$root/config/dredge.conf" <<EOF
+          dest_default = $root/downloads
+          dest_flat = $root/downloads/misc
+          max_downloads = 1
+          EOF
+          python -m dredge --version
+          python -m dredge --help > /dev/null
+          python -m dredge --root "$root" --once --dry-run \
+            --no-update --no-cookies --no-capture --no-prompt

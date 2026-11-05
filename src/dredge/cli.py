@@ -82,7 +82,19 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _safe_console() -> None:
+    """A filename the console codepage cannot encode must not kill the pass."""
+    for stream in (sys.stdout, sys.stderr):
+        if stream is None:
+            continue
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, OSError, ValueError):
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _safe_console()
     args = build_parser().parse_args(argv)
     paths = Paths.from_root(args.root)
     settings = Settings.load(

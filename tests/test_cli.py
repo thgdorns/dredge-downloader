@@ -1,4 +1,4 @@
-from dredge import __version__, records
+from dredge import __version__, cli, records
 from dredge.cli import build_parser, sort_records
 from dredge.config import Paths
 
@@ -32,6 +32,24 @@ def test_refresh_takes_one_or_more_post_urls():
         "https://example.com/post/1",
         "https://example.com/post/2",
     ]
+
+
+def test_console_replaces_unencodable_filenames(monkeypatch):
+    class Stream:
+        def __init__(self):
+            self.options = {}
+
+        def reconfigure(self, **kwargs):
+            self.options.update(kwargs)
+
+    out, err = Stream(), Stream()
+    monkeypatch.setattr(cli.sys, "stdout", out)
+    monkeypatch.setattr(cli.sys, "stderr", err)
+
+    cli._safe_console()
+
+    assert out.options == {"errors": "replace"}
+    assert err.options == {"errors": "replace"}
 
 
 def test_version_is_reported():

@@ -4,13 +4,14 @@ from dredge.sites import find_rule, parse_rule
 def test_parse_full_line():
     rule = parse_rule(
         "iwara.tv  keep=all min=0 id=[A-Za-z0-9]{10,20} also=youtu.be native "
-        "itemurl=https://{host}/video/{id}/{slug} engine=gdl  # a comment"
+        "itemurl=https://{host}/video/{id}/{slug} engine=gdl author=yt-dlp  # a comment"
     )
     assert rule is not None
     assert rule.host == "iwara.tv"
     assert rule.keep == 0
     assert rule.native is True
     assert rule.engine == "gdl"
+    assert rule.author == "yt-dlp"
     assert rule.also == ("youtu.be",)
 
 

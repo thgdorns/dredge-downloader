@@ -18,7 +18,7 @@ _SIZE = re.compile(r"^(\d+)([KMG]?)$", re.IGNORECASE)
 _LISTS = ("also", "probe", "cookiedrop")
 # Values kept verbatim (case matters: gdl= options and URL templates).
 _SCALARS = (
-    "id", "tpl", "folder", "engine", "postid", "posturl", "itemurl", "playlist",
+    "id", "tpl", "folder", "engine", "author", "postid", "posturl", "itemurl", "playlist",
     "strip", "dlstrip", "keepfrag", "list", "key", "dest", "rewrite",
 )
 
@@ -43,6 +43,7 @@ class SiteRule:
     tpl: str = ""
     folder: str = ""
     engine: str = ""
+    author: str = ""              # "yt-dlp": creator folder from its uploader name
     dest: str = ""                # named destination for this host (dredge.conf)
     rewrite: str = ""             # REGEX=>URL applied to the URL before the engines
     cookiedrop: tuple[str, ...] = ()
@@ -106,7 +107,7 @@ def parse_rule(line: str) -> SiteRule | None:
         elif key == "gdl":
             rule.gdl = tuple(v.strip() for v in value.split(",") if v.strip())
         elif key in _SCALARS:
-            setattr(rule, key, value.lower() if key in ("engine", "key", "dest") else value)
+            setattr(rule, key, value.lower() if key in ("engine", "key", "dest", "author") else value)
         else:
             rule.extra[key] = value
     return rule

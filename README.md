@@ -189,7 +189,12 @@ example.com   keep=all min=0 id=[0-9]{6,} native list=^/(?:profile/[^/]+|videos)
 
 `keep=`, `min=`, `id=`, `also=`, `serial`, `native`, `probe=`, `gdl=`, `key=`,
 `playlist=`, `postid=`, `posturl=`, `itemurl=`, `tpl=`, `folder=`, `cookiedrop=`,
-`engine=`, `list=`, `dest=`, `rewrite=`. The example file documents each one.
+`engine=`, `author=`, `list=`, `dest=`, `rewrite=`. The example file documents each one.
+
+`author=yt-dlp` makes gallery-dl use yt-dlp's uploader **display name** as the
+creator folder. gallery-dl's own metadata only has the handle for some sites
+(iwara, for example), which would otherwise name the folder `user29894` instead
+of the author's name.
 
 `config/dredge.conf` holds the machine-specific values (destinations, fallback
 drives, templates, tool folders). See

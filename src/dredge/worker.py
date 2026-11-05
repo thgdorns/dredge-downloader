@@ -478,6 +478,22 @@ class Worker:
 
         return load_domains(self.paths.generic_sites)
 
+    def _ytdlp_author(self, url: str) -> str:
+        """The uploader's display name from yt-dlp (gallery-dl often has the handle)."""
+        if not self.engines.yt:
+            return ""
+        _, out = run(
+            [self.engines.yt, "--ignore-config", "--config-locations",
+             str(self.paths.ytdlp_conf), "--no-download-archive", "--simulate",
+             "--no-warnings", "--print", "%(uploader)s", url],
+            cwd=self.paths.root,
+        )
+        for line in reversed(out.splitlines()):
+            name = line.strip()
+            if name and not name.startswith("[") and name != "NA":
+                return name
+        return ""
+
     def _gdl_args(
         self,
         dl: str,
@@ -496,6 +512,10 @@ class Worker:
         if rule and rule.gdl:
             for option in rule.gdl:
                 args += ["-o", option]
+        if rule and rule.author == "yt-dlp":
+            author = self._ytdlp_author(dl)
+            if author:
+                args += ["-o", f"directory={author}"]
         if files_manifest:
             args += ["--Print-to-file", "after:{_path}", str(files_manifest)]
         if ignore:

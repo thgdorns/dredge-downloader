@@ -401,3 +401,46 @@ def test_a_mega_folder_uses_its_online_name(tmp_path, monkeypatch):
     assert targets == [tmp_path / "dest" / "VR"]
     assert (tmp_path / "dest" / "VR" / "clip.mp4").exists()
 
+
+def test_gallery_dl_uses_the_ytdlp_display_name_for_the_author_folder(
+    tmp_path, monkeypatch
+):
+    rule = parse_rule("iwara.tv engine=gdl author=yt-dlp")
+    paths = Paths(tmp_path)
+    settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
+    calls: list[list[str]] = []
+
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+        calls.append(list(args))
+        if "--print" in args:
+            return 0, "マレーバク大佐\n"
+        dest = tmp_path / "dest"
+        target = dest / "マレーバク大佐"
+        target.mkdir(parents=True, exist_ok=True)
+        clip = target / "clip.mp4"
+        clip.write_bytes(b"x" * 200_000)
+        for index, arg in enumerate(args):
+            if arg == "--Print-to-file" and index + 2 < len(args):
+                manifest = Path(args[index + 2])
+                manifest.parent.mkdir(parents=True, exist_ok=True)
+                manifest.write_text(str(clip), encoding="utf-8")
+        return 0, ""
+
+    monkeypatch.setattr(worker_module, "run", fake)
+    worker = Worker(
+        paths, settings, Engines(yt="yt-dlp", gdl="gallery-dl"), knowledge(rule)
+    )
+    verdict = worker.download(
+        "https://www.iwara.tv/video/abc",
+        dest=tmp_path / "dest",
+        lane_log=tmp_path / "lane1.log",
+        result=tmp_path / "lane1.result",
+        archive=tmp_path / "lane1.archive",
+    )
+
+    assert verdict == "OK|gallery-dl"
+    assert any(
+        "directory=マレーバク大佐" in arg for call in calls for arg in call
+    )
+    assert (tmp_path / "dest" / "マレーバク大佐" / "clip.mp4").is_file()
+

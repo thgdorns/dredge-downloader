@@ -4,7 +4,7 @@
 #     <host>  [keep=N|all] [min=SIZE] [id=REGEX] [also=HOSTS] [serial] [native]
 #             [probe=HOSTS] [gdl=KEY=VAL,...] [key=PARAM] [playlist=SEG]
 #             [postid=REGEX] [posturl=URL] [itemurl=URL] [tpl=TEMPLATE]
-#             [folder=REGEX] [cookiedrop=NAMES] [engine=NAME] [dest=NAME]
+#             [folder=REGEX] [cookiedrop=NAMES] [engine=NAME] [author=NAME] [dest=NAME]
 #             [rewrite=REGEX=>URL]
 #     *       [strip=REGEX] [dlstrip=REGEX] [keepfrag=REGEX]
 #
@@ -26,6 +26,8 @@
 #   tpl=TEMPLATE yt-dlp output template for this site
 #   folder=REGEX file hosts: the collection folder name is capture group 1
 #   engine=NAME  the only engine for this host: gdl, megadl or mdrs
+#   author=yt-dlp use yt-dlp's display name as the gallery-dl creator folder
+#                when gallery-dl's metadata only exposes the handle
 #   dest=NAME    destination from dredge.conf ([dest:NAME]); default otherwise
 #   rewrite=REGEX=>URL  rewrite the URL before the engines see it (path/alias fix)
 #   cookiedrop=NAMES  cookies a site must never receive (wildcards allowed)

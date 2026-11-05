@@ -118,7 +118,7 @@ copy config\gallery-dl.conf.example config\gallery-dl.conf
 | `--no-update` / `--no-cookies` | skip the engine update / cookie refresh |
 | `--strict-generic` | strict mode: a generic-extractor result only counts on hosts in `generic-sites.txt` |
 | `--ignore-records` | ignore every record and engine archive (menu 1 -> 1) |
-| `--refresh URL` | re-check one post for a newer revision (repeatable; menu 1 -> 9) |
+| `--refresh URL` | re-check one post against gallery-dl's archive; new/changed files download as `.1` (repeatable; menu 1 -> 9) |
 | `--root DIR` | folder holding `config/`, `data/`, `logs/` (default: cwd) |
 
 Press **M** while it runs to open the menu. Inside: records check on/off, retry
@@ -372,7 +372,7 @@ python -m dredge.watch      # KEEP / RETIRE / DUE / UNKNOWN per workaround
 - [x] worker tier chain, junk guard, auto-rename, file-host staging
 - [x] lane pool, serial hosts, destination fallback, space guard
 - [x] console menu, records check, retry/skip failed
-- [x] content-aware `--refresh` for updated posts
+- [x] gallery-dl-archive-aware `--refresh` for updated posts
 - [x] clipboard capture without CopyQ
 - [x] probe mode (`--probe`, `--probe-files`, menu 1 -> 5)
 - [ ] Linux support beyond the pure-Python parts

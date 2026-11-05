@@ -16,8 +16,8 @@ from pathlib import Path
 
 from . import paint, records, state
 from .archive import append_pending, merge_pending
-from .config import Paths, Runtime
-from .destinations import destination_for, free_gb, load_domains
+from .config import Paths, Runtime, Settings
+from .destinations import apply_fallback, destination_for, free_gb, load_domains
 from .engines import Engines, lane_status, lane_status_tail
 from .lanes import LaneBoard
 from .plan import build_plan, order_by_destination, read_queue
@@ -71,6 +71,27 @@ def say(message: str, paths=None) -> None:
         pass
 
 
+def _fallback(
+    runtime: Runtime, settings: Settings, out, stamp
+) -> Settings:
+    """Re-check the drive fallback and return the settings to use.
+
+    ``apply_fallback`` only switches when the default destination's drive is
+    below ``dest_fallback_below_gb`` and a fallback drive has room. Calling it
+    at the start of every pass (and when the 10 GB guard trips) lets a
+    long-running instance move new downloads without a restart.
+    """
+    refreshed = apply_fallback(settings)
+    if refreshed is settings:
+        return settings
+    runtime.settings = refreshed
+    path = refreshed.destinations[refreshed.default_dest].path
+    out(paint.yellow(
+        f"[{stamp()}] {refreshed.fallback_note} ({path})."
+    ))
+    return refreshed
+
+
 def run_pass(
     runtime: Runtime,
     knowledge: Knowledge,
@@ -83,6 +104,7 @@ def run_pass(
     settings = runtime.settings
     filehosts = load_domains(paths.filehosts)
     stamp = lambda: time.strftime("%H:%M:%S")
+    settings = _fallback(runtime, settings, out, stamp)
 
     urls = read_queue(paths.queue)
 
@@ -196,6 +218,11 @@ def run_pass(
                             )
                             out(paint.yellow(message))
                             _log_line(stats.log, message)
+                            refreshed = _fallback(runtime, settings, out, stamp)
+                            if refreshed is not settings:
+                                settings = refreshed
+                                full_dests.clear()
+                                space_checked.clear()
                             continue
                 slot = _free_slot(active, runtime.max_downloads)
                 if slot is None:

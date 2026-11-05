@@ -9,6 +9,7 @@ from dredge.orchestrator import (
     Lane,
     _capture,
     _catch_up_queue,
+    _fallback,
     _files_summary,
     _free_slot,
     _take_next,
@@ -22,6 +23,33 @@ from dredge.urls import Knowledge
 def _plenty_of_space(monkeypatch):
     """Keep the pass-loop tests independent of the runner's free disk space."""
     monkeypatch.setattr(orchestrator, "free_gb", lambda path: 100.0)
+    monkeypatch.setattr(orchestrator, "apply_fallback", lambda settings: settings)
+
+
+def test_fallback_rechecks_drive_space(tmp_path, monkeypatch):
+    from dredge import destinations
+
+    settings = Settings.load(
+        Paths(tmp_path),
+        dest_default=Path("D:/Downloads"),
+        dest_fallback=("G:",),
+        dest_fallback_below_gb=20,
+    )
+    runtime = Runtime(Paths(tmp_path), settings)
+    monkeypatch.setattr(
+        destinations,
+        "free_gb",
+        lambda path: 5.0 if str(path).upper().startswith("D:") else 100.0,
+    )
+    monkeypatch.setattr(orchestrator, "apply_fallback", destinations.apply_fallback)
+
+    messages: list[str] = []
+    refreshed = _fallback(runtime, settings, messages.append, lambda: "12:00:00")
+
+    assert refreshed is not settings
+    assert str(refreshed.destinations["default"].path).upper().startswith("G:")
+    assert runtime.settings is refreshed
+    assert any("writing to G:" in message for message in messages)
 
 
 def test_zero_lanes_are_clamped_to_one(tmp_path):

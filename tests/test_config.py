@@ -1,26 +1,6 @@
-import json
 from pathlib import Path
 
-from dredge.config import (
-    Paths,
-    Settings,
-    save_setting,
-    write_gallery_refresh,
-    write_gallery_runtime,
-)
-
-
-def test_refresh_config_uses_a_separate_hash_archive(tmp_path):
-    paths = Paths(tmp_path)
-    paths.ensure()
-
-    write_gallery_refresh(paths)
-
-    data = json.loads(paths.gallery_refresh.read_text(encoding="utf-8"))
-    for site in ("kemono", "pawchive"):
-        node = data["extractor"][site]
-        assert node["archive"] == "data/state/gallery-dl-refresh.sqlite3"
-        assert node["archive-format"] == "{service}_{user}_{id}_{num}_{hash}"
+from dredge.config import Paths, Settings, save_setting, write_gallery_runtime
 
 
 def test_top_level_settings_after_destination_sections_are_read(tmp_path):

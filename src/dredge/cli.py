@@ -18,7 +18,7 @@ from pathlib import Path
 
 from . import __version__, clipboard, cookies, menu, paint, records, state
 from .archive import append_pending, merge_pending
-from .config import Paths, Runtime, Settings, write_gallery_refresh, write_gallery_runtime
+from .config import Paths, Runtime, Settings, write_gallery_runtime
 from .destinations import apply_fallback, load_domains
 from .engines import Engines, run
 from .lock import AlreadyRunning, InstanceLock
@@ -181,7 +181,6 @@ def prepare(
     """Startup: folders, generated config, dependency check, engines, cookies."""
     paths.ensure()
     write_gallery_runtime(paths, settings)
-    write_gallery_refresh(paths)
     for path in (paths.queue, paths.fail, paths.offline, paths.skip):
         if not path.exists():
             path.parent.mkdir(parents=True, exist_ok=True)

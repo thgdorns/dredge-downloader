@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 import dredge.worker as worker_module
@@ -487,20 +486,10 @@ def test_engine_yt_dlp_tries_yt_dlp_before_gallery_dl(tmp_path, monkeypatch):
     )
 
 
-def test_refresh_redownloads_the_post_when_the_local_files_differ(tmp_path, monkeypatch):
+def test_refresh_uses_gallery_dl_archive_without_no_skip(tmp_path, monkeypatch):
     paths = Paths(tmp_path)
     settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
     calls: list[list[str]] = []
-    worker_module.refresh_mod.remember_folder(
-        paths.revisions, "example.com/post/1", str(tmp_path)
-    )
-    monkeypatch.setattr(
-        worker_module.refresh_mod,
-        "fetch_post",
-        lambda *a, **k: worker_module.refresh_mod.PostMeta(
-            identities=("h:" + "b" * 64,)
-        ),
-    )
     runner = make_runner({"gdl": {"rc": 0, "file": "clip.jpg"}})
 
     def fake(args, **kwargs):
@@ -520,70 +509,23 @@ def test_refresh_redownloads_the_post_when_the_local_files_differ(tmp_path, monk
         archive=tmp_path / "lane1.archive",
     )
 
+    gdl = next(
+        call for call in calls
+        if "gallery-dl" in Path(str(call[0])).stem
+    )
     assert verdict == "OK|gallery-dl"
-    assert len(calls) == 1
-    assert "--no-skip" in calls[0]
-    assert "--filter" not in calls[0]
-    assert "revisions=unique" not in calls[0]
-    row = worker_module.refresh_mod.load(paths.revisions)["example.com/post/1"]
-    assert row.folder == str(tmp_path / "dest")
+    assert "--no-skip" not in gdl
+    assert "--download-archive" not in gdl
 
 
-def test_refresh_stops_when_every_file_is_present(tmp_path, monkeypatch):
-    paths = Paths(tmp_path)
-    settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
-    clip = tmp_path / "clip.jpg"
-    clip.write_bytes(b"x" * 100)
-    (tmp_path / "clip.jpg.json").write_text(
-        json.dumps({"hash": "a" * 64}), encoding="utf-8"
-    )
-    worker_module.refresh_mod.remember_folder(
-        paths.revisions, "example.com/post/1", str(tmp_path)
-    )
-    monkeypatch.setattr(
-        worker_module.refresh_mod,
-        "fetch_post",
-        lambda *a, **k: worker_module.refresh_mod.PostMeta(
-            identities=("h:" + "a" * 64,)
-        ),
-    )
-    calls: list[list[str]] = []
-
-    def fake(args, **kwargs):
-        calls.append(list(args))
-        return 0, ""
-
-    monkeypatch.setattr(worker_module, "run", fake)
-    worker = Worker(
-        paths, settings, Engines(yt="yt-dlp", gdl="gallery-dl"), knowledge()
-    )
-    verdict = worker.download(
-        "https://example.com/post/1",
-        dest=tmp_path / "dest",
-        refresh=True,
-        lane_log=tmp_path / "lane1.log",
-        result=tmp_path / "lane1.result",
-        archive=tmp_path / "lane1.archive",
-    )
-
-    assert verdict == "OK|gallery-dl"
-    assert calls == []
-    log = (tmp_path / "lane1.log").read_text(encoding="utf-8")
-    assert "local files match" in log
-
-
-def test_refresh_without_a_recorded_folder_downloads(tmp_path, monkeypatch):
+def test_refresh_forces_yt_dlp_to_overwrite(tmp_path, monkeypatch):
     paths = Paths(tmp_path)
     settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
     calls: list[list[str]] = []
-    monkeypatch.setattr(
-        worker_module.refresh_mod,
-        "fetch_post",
-        lambda *a, **k: worker_module.refresh_mod.PostMeta(
-            identities=("h:" + "a" * 64,)
-        ),
-    )
-    runner = make_runner({"gdl": {"rc": 0, "file": "clip.jpg"}})
+    runner = make_runner({
+        "gdl": {"rc": 1, "text": "ERROR: Unsupported URL"},
+        "yt": {"rc": 0, "file": "clip.mp4"},
+    })
 
     def fake(args, **kwargs):
         calls.append(list(args))
@@ -602,81 +544,12 @@ def test_refresh_without_a_recorded_folder_downloads(tmp_path, monkeypatch):
         archive=tmp_path / "lane1.archive",
     )
 
-    assert verdict == "OK|gallery-dl"
-    assert "--no-skip" in calls[0]
-    row = worker_module.refresh_mod.load(paths.revisions)["example.com/post/1"]
-    assert row.folder == str(tmp_path / "dest")
-
-
-def test_refresh_with_incomplete_metadata_downloads(tmp_path, monkeypatch):
-    paths = Paths(tmp_path)
-    settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
-    calls: list[list[str]] = []
-    monkeypatch.setattr(
-        worker_module.refresh_mod,
-        "fetch_post",
-        lambda *a, **k: worker_module.refresh_mod.PostMeta(
-            identities=(), complete=False
-        ),
-    )
-    runner = make_runner({"gdl": {"rc": 0, "file": "clip.jpg"}})
-
-    def fake(args, **kwargs):
-        calls.append(list(args))
-        return runner(args, **kwargs)
-
-    monkeypatch.setattr(worker_module, "run", fake)
-    worker = Worker(
-        paths, settings, Engines(yt="yt-dlp", gdl="gallery-dl"), knowledge()
-    )
-    verdict = worker.download(
-        "https://example.com/post/1",
-        dest=tmp_path / "dest",
-        refresh=True,
-        lane_log=tmp_path / "lane1.log",
-        result=tmp_path / "lane1.result",
-        archive=tmp_path / "lane1.archive",
-    )
-
-    assert verdict == "OK|gallery-dl"
-    assert "--no-skip" in calls[0]
-
-
-def test_refresh_ignore_records_skips_the_file_check(tmp_path, monkeypatch):
-    paths = Paths(tmp_path)
-    settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
-    worker_module.refresh_mod.remember_folder(
-        paths.revisions, "example.com/post/1", str(tmp_path)
-    )
-    monkeypatch.setattr(
-        worker_module.refresh_mod,
-        "fetch_post",
-        lambda *a, **k: (_ for _ in ()).throw(AssertionError("fetch_post called")),
-    )
-    calls: list[list[str]] = []
-    runner = make_runner({"gdl": {"rc": 0, "file": "clip.jpg"}})
-
-    def fake(args, **kwargs):
-        calls.append(list(args))
-        return runner(args, **kwargs)
-
-    monkeypatch.setattr(worker_module, "run", fake)
-    worker = Worker(
-        paths, settings, Engines(yt="yt-dlp", gdl="gallery-dl"), knowledge()
-    )
-    verdict = worker.download(
-        "https://example.com/post/1",
-        dest=tmp_path / "dest",
-        refresh=True,
-        ignore_records=True,
-        lane_log=tmp_path / "lane1.log",
-        result=tmp_path / "lane1.result",
-        archive=tmp_path / "lane1.archive",
-    )
-
-    assert verdict == "OK|gallery-dl"
-    assert calls
-    assert "--no-skip" in calls[0]
+    yt_calls = [
+        call for call in calls
+        if "gallery-dl" not in Path(str(call[0])).stem
+    ]
+    assert verdict == "OK|yt-dlp"
+    assert any("--force-overwrites" in call for call in yt_calls)
 
 
 def test_engine_yt_dlp_falls_back_to_gallery_dl(tmp_path, monkeypatch):

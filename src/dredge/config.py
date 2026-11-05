@@ -163,10 +163,6 @@ class Paths:
     def gallery_archive(self) -> Path:
         return self.state / "gallery-dl.sqlite3"
 
-    @property
-    def revisions(self) -> Path:
-        return self.state / "revisions.tsv"
-
     def lane_log(self, slot: int) -> Path:
         return self.logs / f"lane{slot}.log"
 

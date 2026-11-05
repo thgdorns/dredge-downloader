@@ -67,7 +67,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ignore-records", action="store_true",
                         help="ignore downloads.tsv, fail/skip lists and the engine archives")
     parser.add_argument("--refresh", action="append", default=[], metavar="URL",
-                        help="re-check one post for a newer revision and overwrite changed files")
+                        help="re-check one post against gallery-dl's archive "
+                             "(new/changed files are fetched as .1)")
     parser.add_argument("--version", action="version", version=__version__)
 
     worker = parser.add_argument_group("worker (internal - one URL)")
@@ -328,7 +329,7 @@ def run_worker(
 
 
 def refresh_callback(runtime: Runtime, knowledge: Knowledge, engines: Engines):
-    """The menu's "refresh post" action: one URL, revision-aware."""
+    """The menu's "refresh post" action: one URL, gallery-dl archive-aware."""
 
     def refresh_post(url: str) -> None:
         # The menu runs while a pass may be active; appending the rows is safe,
@@ -347,11 +348,13 @@ def run_refresh(
     *,
     merge: bool = True,
 ) -> int:
-    """``--refresh`` / menu 1 -> 9: re-check a post for a newer revision.
+    """``--refresh`` / menu 1 -> 9: re-check a post against gallery-dl's archive.
 
-    Unlike ``--ignore-records`` this is not a from-scratch download: the worker
-    reads the post metadata, drops files whose content hash is unchanged, and
-    overwrites the changed ones in place.
+    The TSV is not consulted, but gallery-dl's archive is. With the hash-bearing
+    ``archive-format`` for kemono/pawchive, an unchanged file keeps its archive
+    key and is skipped; a changed or new attachment has a new key and downloads.
+    ``skip=enumerate`` writes it as ``name.1.ext`` instead of overwriting, and the
+    worker records that name in the TSV.
     """
     paths = runtime.paths
     settings = runtime.settings

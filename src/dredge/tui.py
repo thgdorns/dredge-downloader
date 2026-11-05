@@ -59,8 +59,8 @@ def show_checks_menu(
                      "the generic tier only runs on hosts in generic-sites.txt"
             ),
             menu.MenuItem(
-                "9", "refresh post    re-check one post for a newer revision "
-                     "(overwrites changed files)"
+                "9", "refresh post    re-check one post against gallery-dl's archive "
+                     "(new/changed files download as .1)"
             ),
         ]
         choice = menu.select("checks", items, close="back")

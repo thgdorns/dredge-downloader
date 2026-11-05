@@ -215,59 +215,67 @@ example `yt=--write-description`. The iwara rule uses that; the kemono,
 pawchive, iwara and fantia sections of `gallery-dl.conf` enable the `metadata`
 postprocessor, so the post or video description is saved next to the media as
 a sidecar. Neither engine follows links found in a description — the sidecar is
-there so you can review them.
+there so you can review them. Sidecars are description records only; they are
+never read for duplicate or update decisions.
 
 `engine=yt-dlp` runs the yt-dlp tiers first and keeps gallery-dl as a fallback,
 for image pages or URLs yt-dlp cannot take. `engine=gdl` stops the chain early.
 
 ### Updating an already-downloaded post
 
-gallery-dl's default archive for kemono/pawchive keys a file by its position in
-the post (`{service}_{user}_{id}_{num}`), so a revised file at the same position
-is skipped. `--refresh URL` (or menu 1 -> 9) checks the attachments instead:
+The TSV is the record of what a post downloaded; it is not used to prove a
+post's files are current. The file-level state is gallery-dl's archive. For
+kemono and pawchive, `gallery-dl.conf` sets:
 
-- it reads the post's file identities (`hash` for kemono/pawchive, `file_id` for
-  fantia) without downloading;
-- it reads the `<media>.json` sidecars in the recorded post folder; each sidecar
-  keeps the original hash/file id even when pawchive only served a preview;
-- if every remote file is already recorded, it stops;
-- otherwise it re-downloads the **whole post** with `--no-skip`, overwriting
-  the old files in place - no `name.1.ext` copies.
+```json
+"archive-format": "{service}_{user}_{id}_{num}_{hash}"
+```
 
-Signed CDN URLs are ignored because they change on every request; the hash in
-the sidecar is stable. The post folder is kept in `data/state/revisions.tsv`, so
-a post with no record there is downloaded in full once. If the sidecars are
-deleted, the folder has no local record and the next refresh downloads the post
-again. The sizes in `downloads.tsv` are local and the post metadata has no
-remote size, so size is not used for the check.
+so a changed attachment has a new archive key. `--refresh URL` (or menu 1 -> 9):
 
-fantia has no content hash, so its `file_id` is used; enable the same default
-`metadata` postprocessor for fantia so the sidecars exist. A fantia post that
-gains a new file id is downloaded again in full; without sidecars the refresh
-simply downloads it again. `--refresh --ignore-records` skips the
-check and always downloads. Removed attachments are left on disk, and a title
-change can leave copies under the old title because the title is part of
-gallery-dl's filename. Use `--refresh` while dredge is stopped, or menu 1 -> 9
-while it is running (the menu action uses the same lane code).
+- bypasses the TSV duplicate check, but uses gallery-dl's normal archive;
+- unchanged files keep their old key and are skipped;
+- changed/new attachments have new keys and download;
+- `skip: "enumerate"` writes a changed file as `name.1.ext` instead of
+  overwriting it, and that name is appended to `downloads.tsv`;
+- never reads local files or sidecars, so deleting files does not change the
+  decision.
+
+Old archive entries predate `{hash}`; the first refresh of an old post therefore
+downloads its current files as `.1` once. Normal re-adds of a post already in
+the TSV stay skipped; use `--refresh` for the archive check.
+
+fantia's archive key already contains `{file_id}`, so a new file id is detected
+natively. `--refresh --ignore-records` bypasses the archive and re-downloads with
+`--no-skip` (overwrite), not the incremental check. Use `--refresh` while dredge
+is stopped, or menu 1 -> 9 while it is running.
 
 ### What counts as a duplicate
 
-- **A single post** is keyed by its canonical URL. The kemono/pawchive twins
-  (`kemono.cr`, `kemono.su`, `kemono.party` and `pawchive.pw`) share one key, so
-  re-adding either host is "already downloaded"; the archive row still shows
-  the URL you queued.
-- **A creator profile** is a listing, not a post: its own URL is not archived.
-  Re-adding it re-crawls the profile and finds new posts; existing files are
-  skipped by gallery-dl's archive, so they are not downloaded again.
-- **Probe, post level** (`--probe`) queues only posts that are not already in
-  the archive, including posts reached through the mirror twin.
+- **A single post** is keyed by its canonical URL in `downloads.tsv`. The
+  kemono/pawchive twins (`kemono.cr`, `kemono.su`, `kemono.party` and
+  `pawchive.pw`) share one key, so re-adding either host is "already
+  downloaded"; the row keeps the URL you queued.
+- **The TSV is a record first**: it stores the URL and the file names/sizes that
+  were written. The queue filter uses it as a secondary duplicate check. It is
+  not used to decide whether local files still exist.
+- **Gallery-dl's archive is the file-level check**: with the hash-bearing
+  `archive-format`, unchanged files are skipped and changed/new files are
+  fetched as `.1`.
+- **A creator profile** is a listing, not a post: its URL is not archived.
+  Re-adding it re-crawls and finds new posts; existing files are skipped by
+  gallery-dl's archive.
+- **Probe, post level** (`--probe`) queues only posts not already in the TSV,
+  including mirror twins.
 - **Probe, file level** (`--probe-files`) uses `gallery-dl -g`, which lists
   every file URL regardless of gallery-dl's archive. It is a review list, not a
   new-only list; only a file URL that Dredge itself downloaded and archived is
   skipped.
-- **A revised post** (changed attachment) is skipped by a normal re-add. Use
-  `--refresh URL` or menu 1 -> 9 to compare the sidecar hashes/file ids and
-  re-download the post when it changed.
+- **A revised post** is skipped by a normal re-add; `--refresh` is the
+  gallery-dl-archive check and writes new/changed files as `.1`.
+
+The `.json` and `.description` sidecars are for descriptions only; they are
+never read for duplicate or update decisions.
 
 `author=yt-dlp` makes gallery-dl use yt-dlp's uploader **display name** as the
 creator folder. gallery-dl's own metadata only has the handle for some sites

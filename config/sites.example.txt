@@ -25,7 +25,8 @@
 #   itemurl=URL  the URL of one item, for probe mode; adds {slug}
 #   tpl=TEMPLATE yt-dlp output template for this site
 #   folder=REGEX file hosts: the collection folder name is capture group 1
-#   engine=NAME  the only engine for this host: gdl, megadl or mdrs
+#   engine=NAME  gdl/megadl/mdrs: the only engine for this host;
+#                yt-dlp: yt-dlp first, gallery-dl only as a fallback
 #   author=yt-dlp use yt-dlp's display name as the gallery-dl creator folder
 #                when gallery-dl's metadata only exposes the handle
 #   dest=NAME    destination from dredge.conf ([dest:NAME]); default otherwise

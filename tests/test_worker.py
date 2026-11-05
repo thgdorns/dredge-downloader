@@ -444,3 +444,77 @@ def test_gallery_dl_uses_the_ytdlp_display_name_for_the_author_folder(
     )
     assert (tmp_path / "dest" / "マレーバク大佐" / "clip.mp4").is_file()
 
+
+def test_engine_yt_dlp_tries_yt_dlp_before_gallery_dl(tmp_path, monkeypatch):
+    rule = parse_rule("example.com engine=yt-dlp")
+    paths = Paths(tmp_path)
+    settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
+    calls: list[list[str]] = []
+
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+        calls.append(list(args))
+        if "gallery-dl" in Path(str(args[0])).stem:
+            return 0, ""
+        dest = Path(args[args.index("-P") + 1])
+        clip = dest / "clip.mp4"
+        dest.mkdir(parents=True, exist_ok=True)
+        clip.write_bytes(b"x" * 200_000)
+        for index, arg in enumerate(args):
+            if arg == "--print-to-file" and index + 2 < len(args):
+                manifest = Path(args[index + 2])
+                manifest.parent.mkdir(parents=True, exist_ok=True)
+                manifest.write_text(str(clip), encoding="utf-8")
+        return 0, ""
+
+    monkeypatch.setattr(worker_module, "run", fake)
+    worker = Worker(
+        paths, settings, Engines(yt="yt-dlp", gdl="gallery-dl"), knowledge(rule)
+    )
+    verdict = worker.download(
+        "https://example.com/post/1",
+        dest=tmp_path / "dest",
+        lane_log=tmp_path / "lane1.log",
+        result=tmp_path / "lane1.result",
+        archive=tmp_path / "lane1.archive",
+    )
+
+    assert verdict == "OK|yt-dlp"
+    assert not any("gallery-dl" in Path(str(call[0])).stem for call in calls)
+
+
+def test_engine_yt_dlp_falls_back_to_gallery_dl(tmp_path, monkeypatch):
+    rule = parse_rule("example.com engine=yt-dlp")
+    paths = Paths(tmp_path)
+    settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
+    calls: list[list[str]] = []
+
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+        calls.append(list(args))
+        if "gallery-dl" in Path(str(args[0])).stem:
+            dest = Path(args[args.index("-d") + 1]) if "-d" in args else Path(args[args.index("-D") + 1])
+            clip = dest / "clip.mp4"
+            dest.mkdir(parents=True, exist_ok=True)
+            clip.write_bytes(b"x" * 200_000)
+            for index, arg in enumerate(args):
+                if arg == "--Print-to-file" and index + 2 < len(args):
+                    manifest = Path(args[index + 2])
+                    manifest.parent.mkdir(parents=True, exist_ok=True)
+                    manifest.write_text(str(clip), encoding="utf-8")
+            return 0, ""
+        return 1, "ERROR: Unsupported URL"
+
+    monkeypatch.setattr(worker_module, "run", fake)
+    worker = Worker(
+        paths, settings, Engines(yt="yt-dlp", gdl="gallery-dl"), knowledge(rule)
+    )
+    verdict = worker.download(
+        "https://example.com/post/1",
+        dest=tmp_path / "dest",
+        lane_log=tmp_path / "lane1.log",
+        result=tmp_path / "lane1.result",
+        archive=tmp_path / "lane1.archive",
+    )
+
+    assert verdict == "OK|gallery-dl"
+    assert any("gallery-dl" in Path(str(call[0])).stem for call in calls)
+

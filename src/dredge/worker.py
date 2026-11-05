@@ -17,7 +17,7 @@ import tempfile
 import threading
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .archive import format_row
@@ -42,6 +42,14 @@ class FileRecord:
     name: str
     path: Path
     size: int
+
+
+@dataclass
+class GalleryResult:
+    engine: str | None = None
+    page_ids: list[str] = field(default_factory=list)
+    pages_manifest: Path | None = None
+    handled: bool = False
 
 
 def _now() -> str:
@@ -256,7 +264,6 @@ class Worker:
                     return self._finish(verdict, result)
 
         playlist = self.knowledge.playlist(url)
-        pages_manifest: Path | None = None
         page_ids: list[str] = []
         gdl_handled = False
         engine: str | None = None
@@ -278,58 +285,23 @@ class Worker:
             pass
         blocked = False
 
-        # --- tier 1: gallery-dl -----------------------------------------
-        if self.engines.gdl:
-            self._lane(f"[gallery-dl] {url}")
-            args = self._gdl_args(
-                dl, final_dest, flat or bool(folder), dl_rule, playlist,
-                files_manifest, sim, ignore,
-            )
-            if playlist and archive:
-                pages_manifest = Path(str(archive) + ".pages")
-                try:
-                    pages_manifest.unlink()
-                except OSError:
-                    pass
-                args = ["--Print-to-file", "after:{id}", str(pages_manifest)] + args
+        prefer_yt = bool(dl_rule and dl_rule.engine in ("yt-dlp", "ytdlp"))
 
-            rc, _ = run([self.engines.gdl, *args], cwd=self.paths.root, sink=self._sink)
-            if ignore:
-                self._auto_rename(args, files_manifest)
-            out = self.text
-            unsupported = bool(re.search(r"Unsupported URL|is not a valid URL", out))
-            page_err = bool(re.search(r"\[(?!download\b)[\w-]+\]\[error\]", out))
-            file_err = bool(re.search(r"\[download\]\[error\]", out))
-            n_file_err = len(re.findall(r"\[download\]\[error\]", out))
-            n_404 = len(re.findall(r"404 Not Found", out))
-            throttled = bool(re.search(r"(?i)(too many requests|rate limit|too many attempts)", out))
-            dead_only = bool(
-                playlist and n_file_err and not page_err and n_404 >= n_file_err and not throttled
+        # --- tier 1: gallery-dl -----------------------------------------
+        if self.engines.gdl and not prefer_yt:
+            gallery = self._gallery_tier(
+                url, dl, final_dest, flat, folder, dl_rule, playlist,
+                files_manifest, sim, ignore, archive, sig0, dry,
             )
-            gdl_err = (file_err or page_err) and not unsupported and not dead_only
-            page_ids = self._page_ids(pages_manifest) if playlist else []
-            exit_ok = rc == 0 or dead_only
-            existing = file_records(out, final_dest, files_manifest, include_skipped=True)
-            made = produced(final_dest, sig0, out, dry)
-            skipped = bool(_SKIP_LINE.search(out))
-            if exit_ok and not gdl_err and (page_ids or made or existing or skipped):
-                engine = "gallery-dl"
-                if not made and existing:
-                    self._lane(
-                        "[gallery-dl] files already on disk - recording them as downloaded"
-                    )
-                elif not made and skipped:
-                    self._lane(
-                        "[gallery-dl] archived as downloaded - recording the post, "
-                        "not fetching it again"
-                    )
-            if not engine and playlist and not unsupported:
-                gdl_handled = True
-            if dl_rule and dl_rule.engine == "gdl":
-                gdl_handled = True
+            engine = gallery.engine
+            page_ids = gallery.page_ids
+            gdl_handled = gallery.handled
 
         # --- tier 1f: file-host engines ---------------------------------
-        if not engine and not dry and dl_rule and dl_rule.engine and dl_rule.engine != "gdl":
+        if (
+            not engine and not dry and dl_rule and dl_rule.engine
+            and dl_rule.engine not in ("gdl", "yt-dlp", "ytdlp")
+        ):
             engine = self._filehost_engine(dl, final_dest, dl_rule, files_manifest)
 
         # --- tiers 2-3: yt-dlp ------------------------------------------
@@ -440,6 +412,14 @@ class Worker:
                 "(a page asset or an image is not a download)"
             )
 
+        if not engine and prefer_yt and self.engines.gdl:
+            gallery = self._gallery_tier(
+                url, dl, final_dest, flat, folder, dl_rule, playlist,
+                files_manifest, sim, ignore, archive, dir_signature(final_dest), dry,
+            )
+            engine = gallery.engine
+            page_ids = gallery.page_ids
+
         if engine:
             verdict = f"OK|{engine}"
         elif RATE_RE.search(self.text):
@@ -477,6 +457,75 @@ class Worker:
         from .destinations import load_domains
 
         return load_domains(self.paths.generic_sites)
+
+    def _gallery_tier(
+        self,
+        url: str,
+        dl: str,
+        final_dest: Path,
+        flat: bool,
+        folder: str,
+        dl_rule: SiteRule | None,
+        playlist: Playlist | None,
+        files_manifest: Path,
+        sim: list[str],
+        ignore: bool,
+        archive: str | Path | None,
+        sig: str,
+        dry: bool,
+    ) -> GalleryResult:
+        """One gallery-dl attempt; used first or as the yt-dlp fallback."""
+        result = GalleryResult()
+        self._lane(f"[gallery-dl] {url}")
+        args = self._gdl_args(
+            dl, final_dest, flat or bool(folder), dl_rule, playlist,
+            files_manifest, sim, ignore,
+        )
+        if playlist and archive:
+            result.pages_manifest = Path(str(archive) + ".pages")
+            try:
+                result.pages_manifest.unlink()
+            except OSError:
+                pass
+            args = ["--Print-to-file", "after:{id}", str(result.pages_manifest)] + args
+
+        rc, _ = run([self.engines.gdl, *args], cwd=self.paths.root, sink=self._sink)
+        if ignore:
+            self._auto_rename(args, files_manifest)
+        out = self.text
+        unsupported = bool(re.search(r"Unsupported URL|is not a valid URL", out))
+        page_err = bool(re.search(r"\[(?!download\b)[\w-]+\]\[error\]", out))
+        file_err = bool(re.search(r"\[download\]\[error\]", out))
+        n_file_err = len(re.findall(r"\[download\]\[error\]", out))
+        n_404 = len(re.findall(r"404 Not Found", out))
+        throttled = bool(re.search(r"(?i)(too many requests|rate limit|too many attempts)", out))
+        dead_only = bool(
+            playlist and n_file_err and not page_err and n_404 >= n_file_err and not throttled
+        )
+        gdl_err = (file_err or page_err) and not unsupported and not dead_only
+        result.page_ids = self._page_ids(result.pages_manifest) if playlist else []
+        exit_ok = rc == 0 or dead_only
+        existing = file_records(out, final_dest, files_manifest, include_skipped=True)
+        made = produced(final_dest, sig, out, dry)
+        skipped = bool(_SKIP_LINE.search(out))
+        if exit_ok and not gdl_err and (
+            result.page_ids or made or existing or skipped
+        ):
+            result.engine = "gallery-dl"
+            if not made and existing:
+                self._lane(
+                    "[gallery-dl] files already on disk - recording them as downloaded"
+                )
+            elif not made and skipped:
+                self._lane(
+                    "[gallery-dl] archived as downloaded - recording the post, "
+                    "not fetching it again"
+                )
+        if not result.engine and playlist and not unsupported:
+            result.handled = True
+        if dl_rule and dl_rule.engine == "gdl":
+            result.handled = True
+        return result
 
     def _ytdlp_author(self, url: str) -> str:
         """The uploader's display name from yt-dlp (gallery-dl often has the handle)."""

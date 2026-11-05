@@ -191,6 +191,9 @@ example.com   keep=all min=0 id=[0-9]{6,} native list=^/(?:profile/[^/]+|videos)
 `playlist=`, `postid=`, `posturl=`, `itemurl=`, `tpl=`, `folder=`, `cookiedrop=`,
 `engine=`, `author=`, `list=`, `dest=`, `rewrite=`. The example file documents each one.
 
+`engine=yt-dlp` runs the yt-dlp tiers first and keeps gallery-dl as a fallback,
+for image pages or URLs yt-dlp cannot take. `engine=gdl` stops the chain early.
+
 `author=yt-dlp` makes gallery-dl use yt-dlp's uploader **display name** as the
 creator folder. gallery-dl's own metadata only has the handle for some sites
 (iwara, for example), which would otherwise name the folder `user29894` instead

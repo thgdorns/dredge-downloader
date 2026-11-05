@@ -111,6 +111,10 @@ class Paths:
         return self.config / "gallery-dl.conf"
 
     @property
+    def gallery_refresh(self) -> Path:
+        return self.config / "gallery-dl-refresh.json"
+
+    @property
     def gallery_runtime(self) -> Path:
         return self.config / "gallery-dl.runtime.json"
 
@@ -211,6 +215,34 @@ def write_gallery_runtime(paths: Paths, settings: Settings) -> None:
     try:
         paths.config.mkdir(parents=True, exist_ok=True)
         paths.gallery_runtime.write_text(
+            json.dumps(payload, indent=2) + "\n", encoding="utf-8"
+        )
+    except OSError:
+        pass
+
+
+def write_gallery_refresh(paths: Paths) -> None:
+    """Generate the refresh-only gallery-dl config.
+
+    Normal runs keep the position-based archive that already exists. Only an
+    explicit refresh uses this file, with a separate archive and a content-hash
+    key, so old position keys can never make a profile crawl re-download files.
+    """
+    payload = {
+        "extractor": {
+            "kemono": {
+                "archive": "data/state/gallery-dl-refresh.sqlite3",
+                "archive-format": "{service}_{user}_{id}_{num}_{hash}",
+            },
+            "pawchive": {
+                "archive": "data/state/gallery-dl-refresh.sqlite3",
+                "archive-format": "{service}_{user}_{id}_{num}_{hash}",
+            },
+        }
+    }
+    try:
+        paths.config.mkdir(parents=True, exist_ok=True)
+        paths.gallery_refresh.write_text(
             json.dumps(payload, indent=2) + "\n", encoding="utf-8"
         )
     except OSError:

@@ -489,6 +489,8 @@ def test_engine_yt_dlp_tries_yt_dlp_before_gallery_dl(tmp_path, monkeypatch):
 def test_refresh_uses_gallery_dl_archive_without_no_skip(tmp_path, monkeypatch):
     paths = Paths(tmp_path)
     settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
+    (tmp_path / "config").mkdir(exist_ok=True)
+    paths.gallery_refresh.write_text("{}", encoding="utf-8")
     calls: list[list[str]] = []
     runner = make_runner({"gdl": {"rc": 0, "file": "clip.jpg"}})
 
@@ -514,6 +516,7 @@ def test_refresh_uses_gallery_dl_archive_without_no_skip(tmp_path, monkeypatch):
         if "gallery-dl" in Path(str(call[0])).stem
     )
     assert verdict == "OK|gallery-dl"
+    assert str(paths.gallery_refresh) in gdl
     assert "--no-skip" not in gdl
     assert "--download-archive" not in gdl
 

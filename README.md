@@ -224,16 +224,20 @@ for image pages or URLs yt-dlp cannot take. `engine=gdl` stops the chain early.
 ### Updating an already-downloaded post
 
 The TSV is the record of what a post downloaded; it is not used to prove a
-post's files are current. The file-level state is gallery-dl's archive. For
-kemono and pawchive, `gallery-dl.conf` sets:
+post's files are current. Normal runs keep gallery-dl's existing
+position-based archive, so a profile crawl never mistakes old files for new.
+
+`--refresh` uses a separate, refresh-only gallery-dl config generated at
+startup (`config/gallery-dl-refresh.json`):
 
 ```json
+"archive": "data/state/gallery-dl-refresh.sqlite3",
 "archive-format": "{service}_{user}_{id}_{num}_{hash}"
 ```
 
-so a changed attachment has a new archive key. `--refresh URL` (or menu 1 -> 9):
+for kemono and pawchive. It:
 
-- bypasses the TSV duplicate check, but uses gallery-dl's normal archive;
+- bypasses the TSV duplicate check but uses the refresh archive;
 - unchanged files keep their old key and are skipped;
 - changed/new attachments have new keys and download;
 - `skip: "enumerate"` writes a changed file as `name.1.ext` instead of
@@ -241,9 +245,10 @@ so a changed attachment has a new archive key. `--refresh URL` (or menu 1 -> 9):
 - never reads local files or sidecars, so deleting files does not change the
   decision.
 
-Old archive entries predate `{hash}`; the first refresh of an old post therefore
-downloads its current files as `.1` once. Normal re-adds of a post already in
-the TSV stay skipped; use `--refresh` for the archive check.
+The refresh archive starts empty, so the **first** explicit refresh of an old
+post downloads its current files as `.1` once; later refreshes are incremental.
+Normal profile crawls use the old position archive and cannot create those
+duplicates.
 
 fantia's archive key already contains `{file_id}`, so a new file id is detected
 natively. `--refresh --ignore-records` bypasses the archive and re-downloads with
@@ -259,9 +264,10 @@ is stopped, or menu 1 -> 9 while it is running.
 - **The TSV is a record first**: it stores the URL and the file names/sizes that
   were written. The queue filter uses it as a secondary duplicate check. It is
   not used to decide whether local files still exist.
-- **Gallery-dl's archive is the file-level check**: with the hash-bearing
-  `archive-format`, unchanged files are skipped and changed/new files are
-  fetched as `.1`.
+- **Normal runs use gallery-dl's position archive**: existing files are
+  skipped, including during creator-profile crawls.
+- **`--refresh` uses the separate hash archive**: unchanged files skip; changed
+  or new files download as `.1`.
 - **A creator profile** is a listing, not a post: its URL is not archived.
   Re-adding it re-crawls and finds new posts; existing files are skipped by
   gallery-dl's archive.

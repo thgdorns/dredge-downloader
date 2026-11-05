@@ -295,6 +295,7 @@ class Worker:
             gallery = self._gallery_tier(
                 url, dl, final_dest, flat, folder, dl_rule, playlist,
                 files_manifest, sim, ignore, archive, sig0, dry,
+                refresh=refresh,
             )
             engine = gallery.engine
             page_ids = gallery.page_ids
@@ -422,6 +423,7 @@ class Worker:
             gallery = self._gallery_tier(
                 url, dl, final_dest, flat, folder, dl_rule, playlist,
                 files_manifest, sim, ignore, archive, dir_signature(final_dest), dry,
+                refresh=refresh,
             )
             engine = gallery.engine
             page_ids = gallery.page_ids
@@ -479,13 +481,15 @@ class Worker:
         archive: str | Path | None,
         sig: str,
         dry: bool,
+        *,
+        refresh: bool = False,
     ) -> GalleryResult:
         """One gallery-dl attempt; used first or as the yt-dlp fallback."""
         result = GalleryResult()
         self._lane(f"[gallery-dl] {url}")
         args = self._gdl_args(
             dl, final_dest, flat or bool(folder), dl_rule, playlist,
-            files_manifest, sim, ignore,
+            files_manifest, sim, ignore, refresh=refresh,
         )
         if playlist and archive:
             result.pages_manifest = Path(str(archive) + ".pages")
@@ -559,8 +563,12 @@ class Worker:
         files_manifest: Path,
         sim: list[str],
         ignore: bool,
+        *,
+        refresh: bool = False,
     ) -> list[str]:
         args = ["--config-ignore", "-c", str(self.paths.gallery_conf)]
+        if refresh and self.paths.gallery_refresh.exists():
+            args += ["-c", str(self.paths.gallery_refresh)]
         if self.paths.gallery_runtime.exists():
             args += ["-c", str(self.paths.gallery_runtime)]
         args += ["-D" if flat else "-d", str(dest)]

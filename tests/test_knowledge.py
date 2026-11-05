@@ -42,6 +42,16 @@ def test_dl_url_substitutes_a_mirror_and_keeps_the_path():
     assert knowledge.dl_url("https://kemono.party/user/1") == "https://pawchive.pw/user/1"
 
 
+def test_keys_add_the_mirror_target_for_duplicate_checks():
+    knowledge = build(mirrors=MirrorTable(mirrors={"kemono.party": "pawchive.pw"}))
+
+    assert set(knowledge.keys("https://kemono.party/user/1")) == {
+        "kemono.party/user/1",
+        "pawchive.pw/user/1",
+    }
+    assert knowledge.keys("https://pawchive.pw/user/1") == ("pawchive.pw/user/1",)
+
+
 def test_dl_url_strips_tracking_but_keeps_download_arguments():
     url = "https://example.com/file?id=9&utm_source=x"
     assert dl_url(url) == "https://example.com/file?id=9"

@@ -250,6 +250,25 @@ change can leave copies under the old title because the title is part of
 gallery-dl's filename. Use `--refresh` while dredge is stopped, or menu 1 -> 9
 while it is running (the menu action uses the same lane code).
 
+### What counts as a duplicate
+
+- **A single post** is keyed by its canonical URL. The kemono/pawchive twins
+  (`kemono.cr`, `kemono.su`, `kemono.party` and `pawchive.pw`) share one key, so
+  re-adding either host is "already downloaded"; the archive row still shows
+  the URL you queued.
+- **A creator profile** is a listing, not a post: its own URL is not archived.
+  Re-adding it re-crawls the profile and finds new posts; existing files are
+  skipped by gallery-dl's archive, so they are not downloaded again.
+- **Probe, post level** (`--probe`) queues only posts that are not already in
+  the archive, including posts reached through the mirror twin.
+- **Probe, file level** (`--probe-files`) uses `gallery-dl -g`, which lists
+  every file URL regardless of gallery-dl's archive. It is a review list, not a
+  new-only list; only a file URL that Dredge itself downloaded and archived is
+  skipped.
+- **A revised post** (changed attachment) is skipped by a normal re-add. Use
+  `--refresh URL` or menu 1 -> 9 to compare the sidecar hashes/file ids and
+  re-download the post when it changed.
+
 `author=yt-dlp` makes gallery-dl use yt-dlp's uploader **display name** as the
 creator folder. gallery-dl's own metadata only has the handle for some sites
 (iwara, for example), which would otherwise name the folder `user29894` instead

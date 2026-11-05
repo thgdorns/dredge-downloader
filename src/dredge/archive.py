@@ -135,6 +135,9 @@ def load_sets(path: str | Path, knowledge: Knowledge) -> tuple[set[str], set[str
                 continue
             seen.add(url)
             archived.add(url)
+            for key in knowledge.keys(url):
+                seen.add(key)
+                archived.add(key)
             ident = knowledge.seen_id(url)
             if ident:
                 seen.add(ident)
@@ -166,6 +169,8 @@ def merge_pending(
             continue
         if fields[1] not in by_key:
             by_key[fields[1]] = index
+        for key in knowledge.keys(fields[1]):
+            by_key.setdefault(key, index)
         ident = knowledge.seen_id(fields[1])
         if ident and ident not in by_key:
             by_key[ident] = index
@@ -178,20 +183,32 @@ def merge_pending(
         if len(fields) < 3 or not fields[1]:
             continue
         url = fields[1]
+        keys = knowledge.keys(url)
         ident = knowledge.seen_id(url)
         index = by_key.get(url)
+        if index is None:
+            for key in keys:
+                index = by_key.get(key)
+                if index is not None:
+                    break
         if index is None and ident:
             index = by_key.get(ident)
 
         if index is None:
-            if url in added or (ident and ident in added):
+            if url in added or any(key in added for key in keys) or (
+                ident and ident in added
+            ):
                 continue          # same URL twice in one batch: one row
             added.add(url)
+            added.update(keys)
             if ident:
                 added.add(ident)
             keep.append(row)
             seen.add(url)
             archived.add(url)
+            for key in keys:
+                seen.add(key)
+                archived.add(key)
             if ident:
                 seen.add(ident)
                 archived.add(ident)

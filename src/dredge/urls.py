@@ -319,6 +319,22 @@ class Knowledge:
         value = seen_id(url, rule.id)
         return f"id:{rule.key or rule.host}:{value}" if value else ""
 
+    def keys(self, url: str) -> tuple[str, ...]:
+        """Canonical duplicate keys: the URL and the host it is mirrored to.
+
+        A plain ``mirrors.txt`` entry rewrites the URL for downloading but keeps
+        the queued shape in the archive. Adding the mirror target as a second
+        key makes the kemono/pawchive twins the same download without changing
+        what the TSV row shows. This works on scheme-less archive keys too.
+        """
+        canonical = self.canon(url)
+        if not canonical:
+            return ()
+        hostname, sep, rest = canonical.partition("/")
+        target = self.mirrors.mirrors.get(hostname, hostname)
+        mirrored = target + (sep + rest if sep else "")
+        return tuple(dict.fromkeys(k for k in (canonical, mirrored) if k))
+
     def dl_url(self, url: str) -> str:
         rule = self.rule(url)
         return dl_url(

@@ -67,7 +67,7 @@ def keyed_set(lines: Iterable[str], knowledge: Knowledge) -> set[str]:
         c = knowledge.canon(text)
         if not c:
             continue
-        keys.add(c)
+        keys.update(knowledge.keys(text))
         ident = knowledge.seen_id(c)
         if ident:
             keys.add(ident)

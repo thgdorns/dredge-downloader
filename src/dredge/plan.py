@@ -75,30 +75,34 @@ def build_plan(
         if not _HTTP.match(url) or _UNUSABLE.search(url):
             plan.unusable += 1
             continue
-        c = knowledge.canon(url)
-        if not c:
+        keys = knowledge.keys(url)
+        if not keys:
             continue
-        ident = knowledge.seen_id(c)
-        if archive_check and c in seen:
+        ident = knowledge.seen_id(keys[0])
+        if archive_check and (url in seen or any(key in seen for key in keys)):
             plan.downloaded += 1
             continue
         if archive_check and ident and ident in seen:
             plan.downloaded += 1
             continue
         if archive_check and (
-            c in skip_always or url in skip_always or (ident and ident in skip_always)
+            url in skip_always
+            or any(key in skip_always for key in keys)
+            or (ident and ident in skip_always)
         ):
             plan.marked_skip += 1
             continue
         if archive_check and not retry_failed and (
-            c in failed or url in failed or (ident and ident in failed)
+            url in failed
+            or any(key in failed for key in keys)
+            or (ident and ident in failed)
         ):
             plan.failed_skip += 1
             continue
-        if c in unique:
+        if any(key in unique for key in keys):
             plan.duplicates += 1
             continue
-        unique.add(c)
+        unique.update(keys)
         plan.urls.append(url)
     return plan
 

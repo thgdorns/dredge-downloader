@@ -11,7 +11,9 @@ is listed by whichever engine can do it cheapest:
 
 Nothing is downloaded, and nothing is queued before the list is classified:
 items already in the queue, skip.txt, fail.txt/offline.txt - or in the archive
-when the records check is on - are counted and left alone.
+when the records check is on - are counted and left alone. This applies to
+post-level items; ``-g`` file lists are not filtered by gallery-dl's archive
+(see :func:`gdl_file_urls`).
 """
 
 from __future__ import annotations
@@ -128,7 +130,14 @@ def yt_items(url: str, *, paths: Paths, engines: Engines, runner: Runner,
 
 def gdl_file_urls(url: str, *, paths: Paths, engines: Engines,
                   runner: Runner) -> list[Item]:
-    """One item per downloadable file URL (``gallery-dl -g``)."""
+    """One item per downloadable file URL (``gallery-dl -g``).
+
+    ``-g`` deliberately ignores gallery-dl's download archive, so this is a
+    full file list for review, not a new-only list. A file is only classified
+    as downloaded when that exact file URL is in Dredge's archive (for example
+    after a file-level probe was itself downloaded). Post-level probe and the
+    engine archive handle post deduplication.
+    """
     archive = _temp_archive()
     args = [
         engines.gdl or "gallery-dl", *_gdl_base(paths),
@@ -212,8 +221,12 @@ def gdl_posts(url: str, *, paths: Paths, engines: Engines, runner: Runner,
     return items
 
 
-def _has(keys: set[str], url: str, canon: str, ident: str) -> bool:
-    return url in keys or canon in keys or (ident != "" and ident in keys)
+def _has(keyset: set[str], url: str, keys: tuple[str, ...], ident: str) -> bool:
+    return (
+        url in keyset
+        or any(key in keyset for key in keys)
+        or (ident != "" and ident in keyset)
+    )
 
 
 def classify(
@@ -232,24 +245,24 @@ def classify(
     unique: set[str] = set()
     out: list[Item] = []
     for item in items:
-        canon = knowledge.canon(item.url)
-        if not canon:
+        keys = knowledge.keys(item.url)
+        if not keys:
             counts["unusable"] += 1
             continue
-        if canon in unique:
+        if any(key in unique for key in keys):
             counts["duplicate"] += 1
             continue
-        unique.add(canon)
-        ident = knowledge.seen_id(canon)
+        unique.update(keys)
+        ident = knowledge.seen_id(keys[0])
 
         why = ""
-        if _has(queued, item.url, canon, ident):
+        if _has(queued, item.url, keys, ident):
             why = "queued"
-        elif archive_check and _has(skip, item.url, canon, ident):
+        elif archive_check and _has(skip, item.url, keys, ident):
             why = "skip.txt"
-        elif archive_check and _has(failed, item.url, canon, ident):
+        elif archive_check and _has(failed, item.url, keys, ident):
             why = "failed/offline"
-        elif archive_check and _has(seen, item.url, canon, ident):
+        elif archive_check and _has(seen, item.url, keys, ident):
             why = "downloaded"
         counts[{"": "new", "queued": "queued", "skip.txt": "skip",
                 "failed/offline": "failed", "downloaded": "downloaded"}[why]] += 1
@@ -406,7 +419,7 @@ def run_mode(
         if result.new:
             records.append_lines(paths.queue, [item.url for item in result.new])
             for item in result.new:
-                queued.add(knowledge.canon(item.url))
+                queued.update(knowledge.keys(item.url))
             out(paint.yellow(
                 "    downloads are PAUSED: review queue.txt, then resume with menu 1 -> 6."
             ))

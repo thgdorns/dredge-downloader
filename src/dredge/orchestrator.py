@@ -190,7 +190,7 @@ def run_pass(
     full_dests: set[str] = set()
     progress_at = time.monotonic()
     progress_last: dict[int, tuple[str, bool]] = {}
-    queued_canon = {knowledge.canon(u) for u in ordered}
+    queued_canon = {key for u in ordered for key in knowledge.keys(u)}
 
     board = _make_board(out)
     if board:
@@ -473,11 +473,11 @@ def _warn_pages(rows: list[str], out, stamp) -> None:
 
 
 def _mark_failed(runtime: Runtime, knowledge: Knowledge, url: str) -> None:
-    c = knowledge.canon(url)
-    if not c:
+    keys = knowledge.keys(url)
+    if not keys:
         return
-    runtime.failed.add(c)
-    ident = knowledge.seen_id(c)
+    runtime.failed.update(keys)
+    ident = knowledge.seen_id(keys[0])
     if ident:
         runtime.failed.add(ident)
 
@@ -502,10 +502,10 @@ def _catch_up_queue(
         return []
     added: list[str] = []
     for url in records.read_lines(paths.queue):
-        c = knowledge.canon(url)
-        if not c or c in queued_canon:
+        keys = knowledge.keys(url)
+        if not keys or any(key in queued_canon for key in keys):
             continue
-        queued_canon.add(c)
+        queued_canon.update(keys)
         ordered.append(url)
         pending.append(len(ordered) - 1)
         remaining.append(url)
@@ -531,29 +531,36 @@ def _capture(
         if not url.lower().startswith(("http://", "https://")):
             reject("not a URL")
             continue
-        c = knowledge.canon(url)
-        if not c:
+        keys = knowledge.keys(url)
+        if not keys:
             reject("not a URL")
             continue
-        if c in queued:
+        if url in queued or any(key in queued for key in keys):
             reject("already queued")
             continue
-        ident = knowledge.seen_id(c)
-        if runtime.archive_check and (c in runtime.seen or (ident and ident in runtime.seen)):
+        ident = knowledge.seen_id(keys[0])
+        if runtime.archive_check and (
+            url in runtime.seen
+            or any(key in runtime.seen for key in keys)
+            or (ident and ident in runtime.seen)
+        ):
             reject("already downloaded")
             continue
         if runtime.archive_check and (
-            c in runtime.skip_always or url in runtime.skip_always
+            url in runtime.skip_always
+            or any(key in runtime.skip_always for key in keys)
             or (ident and ident in runtime.skip_always)
         ):
             reject("in skip.txt")
             continue
         if runtime.archive_check and not settings.retry_failed and (
-            c in runtime.failed or url in runtime.failed or (ident and ident in runtime.failed)
+            url in runtime.failed
+            or any(key in runtime.failed for key in keys)
+            or (ident and ident in runtime.failed)
         ):
             reject("failed before")
             continue
-        queued.add(c)
+        queued.update(keys)
         added.append(url)
     return added, rejected
 

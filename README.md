@@ -118,7 +118,7 @@ copy config\gallery-dl.conf.example config\gallery-dl.conf
 | `--no-update` / `--no-cookies` | skip the engine update / cookie refresh |
 | `--strict-generic` | strict mode: a generic-extractor result only counts on hosts in `generic-sites.txt` |
 | `--ignore-records` | ignore every record and engine archive (menu 1 -> 1) |
-| `--refresh URL` | re-check one post against gallery-dl's archive; new/changed files download as `.1` (repeatable; menu 1 -> 9) |
+| `--refresh URL` | re-check one post against gallery-dl's position archive (repeatable; menu 1 -> 9) |
 | `--root DIR` | folder holding `config/`, `data/`, `logs/` (default: cwd) |
 
 Press **M** while it runs to open the menu. Inside: records check on/off, retry
@@ -225,30 +225,28 @@ for image pages or URLs yt-dlp cannot take. `engine=gdl` stops the chain early.
 
 The TSV is the record of what a post downloaded; it is not used to prove a
 post's files are current. The file-level state is gallery-dl's archive. For
-kemono and pawchive, `gallery-dl.conf` sets:
+kemono and pawchive it uses the default position key:
 
 ```json
-"archive-format": "{service}_{user}_{id}_{num}_{hash}"
+"archive-format": "{service}_{user}_{id}_{num}"
 ```
 
-so a changed attachment has a new archive key. `--refresh URL` (or menu 1 -> 9):
+A normal run downloads only positions that are not in the archive. A post that
+gains files gets new positions and downloads them; a file replaced at the
+**same** position keeps the same key and is skipped.
 
-- bypasses the TSV duplicate check, but uses gallery-dl's normal archive;
-- unchanged files keep their old key and are skipped;
-- changed/new attachments have new keys and download;
-- `skip: "enumerate"` writes a changed file as `name.1.ext` instead of
-  overwriting it, and that name is appended to `downloads.tsv`;
-- never reads local files or sidecars, so deleting files does not change the
-  decision.
+There is no automatic update detection. If a post has been updated and you want
+its new files, re-download it on purpose:
 
-Old archive entries predate `{hash}`; the first refresh of an old post therefore
-downloads its current files as `.1` once. Normal re-adds of a post already in
-the TSV stay skipped; use `--refresh` for the archive check.
+- `--ignore-records`, or menu 1 -> 1 to turn the records check off, then re-add
+  the post. This bypasses `downloads.tsv` and the engine archives and fetches
+  the post from scratch.
+- `--refresh URL` does **not** do that: it only bypasses the TSV duplicate
+  check and still honours the position archive, so archived positions stay
+  skipped.
 
-fantia's archive key already contains `{file_id}`, so a new file id is detected
-natively. `--refresh --ignore-records` bypasses the archive and re-downloads with
-`--no-skip` (overwrite), not the incremental check. Use `--refresh` while dredge
-is stopped, or menu 1 -> 9 while it is running.
+Neither a normal run nor `--refresh` reads local files or sidecars, so deleting
+a file does not make it come back. No `.1` copy is created by a normal run.
 
 ### What counts as a duplicate
 
@@ -259,9 +257,9 @@ is stopped, or menu 1 -> 9 while it is running.
 - **The TSV is a record first**: it stores the URL and the file names/sizes that
   were written. The queue filter uses it as a secondary duplicate check. It is
   not used to decide whether local files still exist.
-- **Gallery-dl's archive is the file-level check**: with the hash-bearing
-  `archive-format`, unchanged files are skipped and changed/new files are
-  fetched as `.1`.
+- **Gallery-dl's archive is the file-level check**: a position already in the
+  archive is skipped, and a new position downloads. A same-position replacement
+  is not detected.
 - **A creator profile** is a listing, not a post: its URL is not archived.
   Re-adding it re-crawls and finds new posts; existing files are skipped by
   gallery-dl's archive.
@@ -271,8 +269,8 @@ is stopped, or menu 1 -> 9 while it is running.
   every file URL regardless of gallery-dl's archive. It is a review list, not a
   new-only list; only a file URL that Dredge itself downloaded and archived is
   skipped.
-- **A revised post** is skipped by a normal re-add; `--refresh` is the
-  gallery-dl-archive check and writes new/changed files as `.1`.
+- **An updated post** is skipped like any other duplicate. To fetch it again,
+  use `--ignore-records` (or menu 1 -> 1) as described above.
 
 The `.json` and `.description` sidecars are for descriptions only; they are
 never read for duplicate or update decisions.
@@ -372,7 +370,7 @@ python -m dredge.watch      # KEEP / RETIRE / DUE / UNKNOWN per workaround
 - [x] worker tier chain, junk guard, auto-rename, file-host staging
 - [x] lane pool, serial hosts, destination fallback, space guard
 - [x] console menu, records check, retry/skip failed
-- [x] gallery-dl-archive-aware `--refresh` for updated posts
+- [x] `--refresh` that defers to gallery-dl's position archive
 - [x] clipboard capture without CopyQ
 - [x] probe mode (`--probe`, `--probe-files`, menu 1 -> 5)
 - [ ] Linux support beyond the pure-Python parts

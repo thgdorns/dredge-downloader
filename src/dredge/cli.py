@@ -67,8 +67,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ignore-records", action="store_true",
                         help="ignore downloads.tsv, fail/skip lists and the engine archives")
     parser.add_argument("--refresh", action="append", default=[], metavar="URL",
-                        help="re-check one post against gallery-dl's archive "
-                             "(new/changed files are fetched as .1)")
+                        help="re-check one post against gallery-dl's position "
+                             "archive; archived files stay skipped (use "
+                             "--ignore-records to re-fetch an updated post)")
     parser.add_argument("--version", action="version", version=__version__)
 
     worker = parser.add_argument_group("worker (internal - one URL)")
@@ -350,11 +351,11 @@ def run_refresh(
 ) -> int:
     """``--refresh`` / menu 1 -> 9: re-check a post against gallery-dl's archive.
 
-    The TSV is not consulted, but gallery-dl's archive is. With the hash-bearing
-    ``archive-format`` for kemono/pawchive, an unchanged file keeps its archive
-    key and is skipped; a changed or new attachment has a new key and downloads.
-    ``skip=enumerate`` writes it as ``name.1.ext`` instead of overwriting, and the
-    worker records that name in the TSV.
+    The TSV is not consulted, but gallery-dl's archive is. With the default
+    position key (``{service}_{user}_{id}_{num}``), files already archived are
+    skipped and new positions download; a file replaced at the same position is
+    not detected. Local files and sidecars are never read, so a deleted file
+    does not come back.
     """
     paths = runtime.paths
     settings = runtime.settings

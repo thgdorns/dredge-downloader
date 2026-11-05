@@ -268,10 +268,7 @@ class Worker:
                     return self._finish(verdict, result)
 
         refresh_meta = None
-        refresh_filter = ""
         old_folder = ""
-        known: tuple[str, ...] = ()
-        folder_ok = True
         # Records check off is a from-scratch fetch; it also skips the ledger.
         ledger_check = (
             refresh and not dry and self.engines.gdl
@@ -282,35 +279,17 @@ class Worker:
             canon = self.knowledge.canon(url)
             old = refresh_mod.load(self.paths.revisions).get(canon)
             old_folder = old.folder if old else ""
-            # If the recorded post folder is gone (a deleted post or a drive
-            # fallback), the hashes cannot prove the local files still exist.
-            folder_ok = not old_folder or Path(old_folder).is_dir()
-            if (
-                refresh_meta
-                and old
-                and folder_ok
-                and refresh_meta.edited
-                and refresh_meta.edited == old.edited
-                and set(refresh_meta.hashes) <= set(old.hashes)
-            ):
-                self._lane("[refresh] no newer revision - nothing to download")
-                return self._finish("OK|gallery-dl", result)
-            known = old.hashes if (old and folder_ok) else ()
-            refresh_filter = refresh_mod.hash_filter(known)
-            if old and not folder_ok:
-                self._lane(
-                    f"[refresh] recorded folder is gone ({old_folder}) - full refresh"
-                )
-            if refresh_meta:
-                self._lane(
-                    f"[refresh] {len(refresh_meta.hashes)} file(s) in the post; "
-                    + ("downloading only changed files" if refresh_filter
-                       else "downloading the whole post")
-                )
+            if old_folder and refresh_meta:
+                self._lane(f"[refresh] checking {old_folder} against the post")
+                if refresh_mod.up_to_date(refresh_meta, old_folder):
+                    self._lane(
+                        "[refresh] local files match the post - nothing to download"
+                    )
+                    return self._finish("OK|gallery-dl", result)
+            if old_folder:
+                self._lane("[refresh] local files differ - re-downloading the post")
             else:
-                self._lane(
-                    "[refresh] no single-post metadata - re-downloading the post"
-                )
+                self._lane("[refresh] no recorded folder - re-downloading the post")
 
         playlist = self.knowledge.playlist(url)
         page_ids: list[str] = []
@@ -324,10 +303,6 @@ class Worker:
         )
         try:
             files_manifest.unlink()
-        except OSError:
-            pass
-        try:
-            Path(str(files_manifest) + ".hashes").unlink()
         except OSError:
             pass
         extractor_file = self.paths.lane_extractor(slot)
@@ -345,16 +320,13 @@ class Worker:
             gallery = self._gallery_tier(
                 url, dl, final_dest, flat, folder, dl_rule, playlist,
                 files_manifest, sim, ignore, archive, sig0, dry,
-                refresh=refresh, refresh_filter=refresh_filter,
+                refresh=refresh,
             )
             engine = gallery.engine
             page_ids = gallery.page_ids
             gdl_handled = gallery.handled
             if gallery.engine and not dry and not playlist:
-                self._remember_revision(
-                    url, refresh_meta, files_manifest, refresh,
-                    folder=old_folder, known=known, folder_ok=folder_ok,
-                )
+                self._remember_folder(url, dl, files_manifest, folder=old_folder)
 
         # --- tier 1f: file-host engines ---------------------------------
         if (
@@ -478,15 +450,12 @@ class Worker:
             gallery = self._gallery_tier(
                 url, dl, final_dest, flat, folder, dl_rule, playlist,
                 files_manifest, sim, ignore, archive, dir_signature(final_dest), dry,
-                refresh=refresh, refresh_filter=refresh_filter,
+                refresh=refresh,
             )
             engine = gallery.engine
             page_ids = gallery.page_ids
             if gallery.engine and not dry and not playlist:
-                self._remember_revision(
-                    url, refresh_meta, files_manifest, refresh,
-                    folder=old_folder, known=known, folder_ok=folder_ok,
-                )
+                self._remember_folder(url, dl, files_manifest, folder=old_folder)
 
         if engine:
             verdict = f"OK|{engine}"
@@ -543,15 +512,13 @@ class Worker:
         dry: bool,
         *,
         refresh: bool = False,
-        refresh_filter: str = "",
     ) -> GalleryResult:
         """One gallery-dl attempt; used first or as the yt-dlp fallback."""
         result = GalleryResult()
         self._lane(f"[gallery-dl] {url}")
         args = self._gdl_args(
             dl, final_dest, flat or bool(folder), dl_rule, playlist,
-            files_manifest, sim, ignore,
-            refresh=refresh, refresh_filter=refresh_filter,
+            files_manifest, sim, ignore, refresh=refresh,
         )
         if playlist and archive:
             result.pages_manifest = Path(str(archive) + ".pages")
@@ -599,37 +566,15 @@ class Worker:
             result.handled = True
         return result
 
-    def _remember_revision(
-        self,
-        url: str,
-        meta: refresh_mod.PostMeta | None,
-        files_manifest: Path,
-        refresh: bool,
-        *,
-        folder: str = "",
-        known: tuple[str, ...] = (),
-        folder_ok: bool = True,
+    def _remember_folder(
+        self, url: str, dl: str, files_manifest: Path, *, folder: str = ""
     ) -> None:
-        """Keep the last-seen revision so the next refresh can stay incremental."""
-        canon = self.knowledge.canon(url)
-        if refresh:
-            downloaded = refresh_mod.manifest_hashes(files_manifest)
-            folder = folder or refresh_mod.manifest_folder(files_manifest)
-            if meta:
-                current = set(meta.hashes)
-                kept = [h for h in known if folder_ok and h in current]
-                hashes = tuple(dict.fromkeys((*kept, *downloaded)))
-                refresh_mod.remember(
-                    self.paths.revisions, canon, meta.edited, hashes, folder
-                )
-            elif downloaded:
-                refresh_mod.remember(
-                    self.paths.revisions, canon, "", downloaded, folder
-                )
-        else:
-            refresh_mod.remember_from_manifest(
-                self.paths.revisions, canon, files_manifest
-            )
+        """Remember where a downloaded post lives for the next refresh."""
+        folder = refresh_mod.manifest_folder(files_manifest) or folder
+        if not folder:
+            return
+        for key in {self.knowledge.canon(url), self.knowledge.canon(dl)}:
+            refresh_mod.remember_folder(self.paths.revisions, key, folder)
 
     def _ytdlp_author(self, url: str) -> str:
         """The uploader's display name from yt-dlp (gallery-dl often has the handle)."""
@@ -659,7 +604,6 @@ class Worker:
         ignore: bool,
         *,
         refresh: bool = False,
-        refresh_filter: str = "",
     ) -> list[str]:
         args = ["--config-ignore", "-c", str(self.paths.gallery_conf)]
         if self.paths.gallery_runtime.exists():
@@ -676,16 +620,8 @@ class Worker:
             # The archive would skip a changed file at an existing position;
             # --no-skip overwrites it in place, so no .1 duplicate is created.
             args += ["--no-skip"]
-        if refresh_filter:
-            args += ["--filter", refresh_filter]
         if files_manifest:
             args += ["--Print-to-file", "after:{_path}", str(files_manifest)]
-            # {hash} is empty on extractors without a content hash; the ledger
-            # simply ignores blank lines.
-            args += [
-                "--Print-to-file", "after:{hash}",
-                str(Path(str(files_manifest) + ".hashes")),
-            ]
         if ignore:
             temp = Path(_temp_archive())
             self._temps.append(temp)

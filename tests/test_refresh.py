@@ -1,158 +1,181 @@
 import json
-from pathlib import Path
 
 from dredge import refresh
-from dredge.config import Paths
 
 HASH_A = "a" * 64
 HASH_B = "b" * 64
-SAMPLE = json.dumps(
+KEMONO = json.dumps(
     [
-        [2, {"id": "1", "edited": "2024-01-01T00:00:00", "category": "pawchive"}],
+        [2, {"id": "1", "edited": "2024-01-01T00:00:00"}],
         [3, "https://file.test/a", {"num": 1, "hash": HASH_A}],
         [3, "https://file.test/b", {"num": 2, "hash": HASH_B}],
     ]
 )
+FANTIA = json.dumps(
+    [
+        [2, {"post_id": "123", "post_title": "a post"}],
+        [3, "https://fantia.test/a", {"num": 1, "file_id": 456}],
+        [3, "https://fantia.test/b", {"num": 2, "file_id": 789}],
+    ]
+)
 
 
-def test_parse_metadata_reads_one_post_and_its_hashes():
-    meta = refresh.parse_metadata(SAMPLE)
+def test_parse_metadata_reads_content_hashes():
+    meta = refresh.parse_metadata(KEMONO)
 
     assert meta is not None
-    assert meta.edited == "2024-01-01T00:00:00"
-    assert meta.hashes == (HASH_A, HASH_B)
+    assert meta.identities == ("h:" + HASH_A, "h:" + HASH_B)
+    assert meta.post_id == "1"
+    assert meta.complete is True
+
+
+def test_parse_metadata_reads_fantia_file_ids():
+    meta = refresh.parse_metadata(FANTIA)
+
+    assert meta is not None
+    assert meta.identities == ("f:456", "f:789")
+    assert meta.post_id == "123"
+
+
+def test_parse_metadata_marks_a_file_without_an_identity_incomplete():
+    text = json.dumps(
+        [
+            [2, {"id": "1", "edited": "2024-01-01"}],
+            [3, "https://file.test/a", {"num": 1, "hash": ""}],
+        ]
+    )
+
+    meta = refresh.parse_metadata(text)
+
+    assert meta is not None
+    assert meta.identities == ()
+    assert meta.complete is False
 
 
 def test_parse_metadata_ignores_log_lines_around_the_json():
-    meta = refresh.parse_metadata("[pawchive][warning] pending\n" + SAMPLE)
+    meta = refresh.parse_metadata("[pawchive][warning] pending\n" + KEMONO)
 
     assert meta is not None
-    assert meta.hashes == (HASH_A, HASH_B)
+    assert meta.identities == ("h:" + HASH_A, "h:" + HASH_B)
 
 
 def test_parse_metadata_refuses_a_creator_page():
-    two_posts = json.dumps(
+    text = json.dumps(
         [
             [2, {"id": "1", "edited": "2024-01-01"}],
             [2, {"id": "2", "edited": "2024-01-02"}],
         ]
     )
 
-    assert refresh.parse_metadata(two_posts) is None
+    assert refresh.parse_metadata(text) is None
 
 
-def test_hash_filter_keeps_only_new_content():
-    expression = refresh.hash_filter((HASH_A, HASH_B))
-
-    assert expression == f"hash not in ('{HASH_A}','{HASH_B}')"
+def sidecar(folder, name, value):
+    (folder / f"{name}.json").write_text(json.dumps(value), encoding="utf-8")
 
 
-def test_hash_filter_is_empty_without_usable_hashes():
-    assert refresh.hash_filter(()) == ""
-    assert refresh.hash_filter(("not a hash",)) == ""
+def test_up_to_date_matches_sidecar_hashes(tmp_path):
+    (tmp_path / "clip.jpg").write_bytes(b"x")
+    sidecar(tmp_path, "clip.jpg", {"hash": HASH_A})
+    meta = refresh.PostMeta(identities=("h:" + HASH_A,))
+
+    assert refresh.up_to_date(meta, tmp_path)
 
 
-def test_hash_filter_is_dropped_when_the_command_line_would_be_too_long():
-    many = tuple(f"{index:064x}" for index in range(1000))
+def test_up_to_date_accepts_extra_sidecars(tmp_path):
+    (tmp_path / "clip.jpg").write_bytes(b"x")
+    sidecar(tmp_path, "clip.jpg", {"hash": HASH_A})
+    (tmp_path / "old.jpg").write_bytes(b"old")
+    sidecar(tmp_path, "old.jpg", {"hash": HASH_B})
+    meta = refresh.PostMeta(identities=("h:" + HASH_A,))
 
-    assert refresh.hash_filter(many) == ""
+    assert refresh.up_to_date(meta, tmp_path)
 
 
-def test_revision_ledger_round_trips(tmp_path):
-    ledger = tmp_path / "revisions.tsv"
+def test_up_to_date_rejects_a_changed_sidecar_hash(tmp_path):
+    (tmp_path / "clip.jpg").write_bytes(b"x")
+    sidecar(tmp_path, "clip.jpg", {"hash": HASH_A})
+    meta = refresh.PostMeta(identities=("h:" + HASH_B,))
 
-    refresh.remember(ledger, "https://example.com/post/1", "2024-01-01", (HASH_A,))
-    refresh.remember(ledger, "https://example.com/post/2", "2024-01-02", (HASH_B,))
+    assert not refresh.up_to_date(meta, tmp_path)
+
+
+def test_up_to_date_rejects_a_folder_without_sidecars(tmp_path):
+    (tmp_path / "clip.jpg").write_bytes(b"x")
+    meta = refresh.PostMeta(identities=("h:" + HASH_A,))
+
+    assert not refresh.up_to_date(meta, tmp_path)
+
+
+def test_up_to_date_rejects_a_missing_folder(tmp_path):
+    meta = refresh.PostMeta(identities=("h:" + HASH_A, "h:" + HASH_B))
+
+    assert not refresh.up_to_date(meta, tmp_path / "missing")
+
+
+def test_up_to_date_matches_fantia_file_ids(tmp_path):
+    (tmp_path / "123_456.jpg").write_bytes(b"x")
+    sidecar(tmp_path, "123_456.jpg", {"file_id": 456})
+    meta = refresh.PostMeta(identities=("f:456",), post_id="123")
+
+    assert refresh.up_to_date(meta, tmp_path)
+
+
+def test_up_to_date_rejects_a_new_fantia_file_id(tmp_path):
+    (tmp_path / "123_456.jpg").write_bytes(b"x")
+    sidecar(tmp_path, "123_456.jpg", {"file_id": 456})
+    meta = refresh.PostMeta(identities=("f:789",), post_id="123")
+
+    assert not refresh.up_to_date(meta, tmp_path)
+
+
+def test_up_to_date_is_false_for_incomplete_metadata(tmp_path):
+    (tmp_path / "clip.jpg").write_bytes(b"x")
+    meta = refresh.PostMeta(identities=(), complete=False)
+
+    assert not refresh.up_to_date(meta, tmp_path)
+
+
+def test_up_to_date_is_true_for_a_post_without_files(tmp_path):
+    meta = refresh.PostMeta(identities=())
+
+    assert refresh.up_to_date(meta, tmp_path)
+
+
+def test_folder_ledger_round_trips(tmp_path):
+    ledger = tmp_path / "folders.tsv"
+
+    refresh.remember_folder(ledger, "https://example.com/post/1", r"D:\Downloads\A\1")
+    refresh.remember_folder(ledger, "https://example.com/post/2", r"D:\Downloads\A\2")
 
     rows = refresh.load(ledger)
-    assert rows["https://example.com/post/1"].edited == "2024-01-01"
-    assert rows["https://example.com/post/1"].hashes == (HASH_A,)
-    assert rows["https://example.com/post/2"].hashes == (HASH_B,)
-    assert rows["https://example.com/post/2"].folder == ""
+    assert rows["https://example.com/post/1"].folder == r"D:\Downloads\A\1"
+    assert rows["https://example.com/post/2"].folder == r"D:\Downloads\A\2"
 
 
-def test_revision_ledger_keeps_the_post_folder(tmp_path):
-    ledger = tmp_path / "revisions.tsv"
-
-    refresh.remember(ledger, "https://example.com/post/1", "2024-01-01", (HASH_A,), r"D:\Downloads\Creator\1")
-
-    assert refresh.load(ledger)["https://example.com/post/1"].folder == r"D:\Downloads\Creator\1"
-
-
-def test_fetch_post_asks_for_quiet_json(monkeypatch, tmp_path):
-    calls: list[list[str]] = []
-    paths = Paths(tmp_path)
-
-    def fake(args, **kwargs):
-        calls.append(list(args))
-        return 0, SAMPLE
-
-    monkeypatch.setattr(refresh, "run", fake)
-
-    meta = refresh.fetch_post("gallery-dl", paths, "https://example.com/post/1")
-
-    assert meta is not None
-    assert "-q" in calls[0] and "-j" in calls[0]
-    assert calls[0][-1] == "https://example.com/post/1"
-
-
-def test_post_json_hashes_walks_attachments_and_archives():
-    text = json.dumps(
-        {
-            "edited": "2024-01-01",
-            "attachments": [{"hash": HASH_A}],
-            "archives": [{"hash": HASH_B}],
-        }
-    )
-
-    assert refresh.post_json_hashes(text) == (HASH_A, HASH_B)
-
-
-def test_remember_from_manifest_uses_the_post_sidecar(tmp_path):
-    post = tmp_path / "Creator" / "1"
-    post.mkdir(parents=True)
-    clip = post / "clip.jpg"
-    clip.write_bytes(b"x")
-    (post / "post.json").write_text(
-        json.dumps({"edited": "2024-01-01", "attachments": [{"hash": HASH_A}]}),
+def test_folder_ledger_ignores_old_rows(tmp_path):
+    ledger = tmp_path / "folders.tsv"
+    ledger.write_text(
+        "https://example.com/post/1\t2024-01-01\t" + HASH_A + "\tD:\\old\r\n"
+        "https://example.com/post/2\tD:\\Downloads\\A\\2\r\n",
         encoding="utf-8",
     )
-    manifest = tmp_path / "lane.files"
-    manifest.write_text(str(clip), encoding="utf-8")
-    Path(str(manifest) + ".hashes").write_text(HASH_A, encoding="utf-8")
-    ledger = tmp_path / "revisions.tsv"
 
-    assert refresh.remember_from_manifest(ledger, "https://example.com/post/1", manifest)
+    rows = refresh.load(ledger)
 
-    row = refresh.load(ledger)["https://example.com/post/1"]
-    assert row.edited == "2024-01-01"
-    assert row.hashes == (HASH_A,)
-    assert row.folder == str(post)
+    assert "https://example.com/post/1" not in rows
+    assert rows["https://example.com/post/2"].folder == r"D:\Downloads\A\2"
 
 
-def test_remember_from_manifest_is_a_no_op_without_a_sidecar(tmp_path):
-    clip = tmp_path / "clip.jpg"
+def test_manifest_folder_uses_the_first_written_file(tmp_path):
+    clip = tmp_path / "Creator" / "1" / "clip.jpg"
+    clip.parent.mkdir(parents=True)
     clip.write_bytes(b"x")
     manifest = tmp_path / "lane.files"
     manifest.write_text(str(clip), encoding="utf-8")
 
-    assert not refresh.remember_from_manifest(
-        tmp_path / "revisions.tsv", "https://example.com/post/1", manifest
-    )
-    assert not (tmp_path / "revisions.tsv").exists()
+    assert refresh.manifest_folder(manifest) == str(clip.parent)
 
 
-def test_remember_from_manifest_ignores_hashes_of_files_that_were_not_written(tmp_path):
-    clip = tmp_path / "clip.jpg"
-    clip.write_bytes(b"x")
-    (tmp_path / "post.json").write_text(
-        json.dumps({"edited": "2024-01-01", "attachments": [{"hash": HASH_A}]}),
-        encoding="utf-8",
-    )
-    manifest = tmp_path / "lane.files"
-    manifest.write_text(str(clip), encoding="utf-8")
-
-    assert not refresh.remember_from_manifest(
-        tmp_path / "revisions.tsv", "https://example.com/post/1", manifest
-    )
-    assert not (tmp_path / "revisions.tsv").exists()
+def test_manifest_folder_is_empty_without_a_manifest(tmp_path):
+    assert refresh.manifest_folder(tmp_path / "missing.files") == ""

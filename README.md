@@ -204,28 +204,29 @@ for image pages or URLs yt-dlp cannot take. `engine=gdl` stops the chain early.
 
 ### Updating an already-downloaded post
 
-gallery-dl's archive records a file by its position inside a post
-(`{service}_{user}_{id}_{num}`), so a revision that replaces a file at an
-existing position looks like a duplicate. `--refresh URL` (or menu 1 -> 9)
-re-checks one post properly:
+gallery-dl's default archive for kemono/pawchive keys a file by its position in
+the post (`{service}_{user}_{id}_{num}`), so a revised file at the same position
+is skipped. `--refresh URL` (or menu 1 -> 9) checks the attachments instead:
 
-- it reads the post metadata without downloading;
-- if the post's `edited` stamp and every file hash match the previous refresh,
-  it stops;
-- otherwise it downloads only the files whose content hash is new and
-  overwrites the old copy in place, so no `name.1.ext` duplicate appears.
+- it reads the post's file identities (`hash` for kemono/pawchive, `file_id` for
+  fantia) without downloading;
+- it reads the `<media>.json` sidecars in the recorded post folder; each sidecar
+  keeps the original hash/file id even when pawchive only served a preview;
+- if every remote file is already recorded, it stops;
+- otherwise it re-downloads the **whole post** with `--no-skip`, overwriting
+  the old files in place - no `name.1.ext` copies.
 
-The last seen revision is kept in `data/state/revisions.tsv`. Its hashes come
-from the files gallery-dl actually wrote, not from the post's attachment list,
-so an attachment that failed or is still pending is not marked as present.
-Posts downloaded after this feature is enabled are incremental from their first
-refresh; a post that predates the ledger has no hashes yet and is downloaded in
-full once. The recorded post folder is part of the entry - if it is gone (a
-deleted post or a destination fallback to another drive), the refresh downloads
-the post in full instead of trusting the hashes. If you delete an individual
-file from an otherwise intact post, `--refresh --ignore-records` fetches that
-post from scratch. Attachments removed from a post are left on disk, and a
-title change can leave copies under the old title because the title is part of
+Signed CDN URLs are ignored because they change on every request; the hash in
+the sidecar is stable. The post folder is kept in `data/state/revisions.tsv`, so
+a post with no record there is downloaded in full once. If the sidecars are
+deleted, the folder has no local record and the next refresh downloads the post
+again. The sizes in `downloads.tsv` are local and the post metadata has no
+remote size, so size is not used for the check.
+
+fantia has no content hash, so its `file_id` is used; a post that gains a new
+file id is downloaded again in full. `--refresh --ignore-records` skips the
+check and always downloads. Removed attachments are left on disk, and a title
+change can leave copies under the old title because the title is part of
 gallery-dl's filename. Use `--refresh` while dredge is stopped, or menu 1 -> 9
 while it is running (the menu action uses the same lane code).
 
@@ -324,7 +325,7 @@ python -m dredge.watch      # KEEP / RETIRE / DUE / UNKNOWN per workaround
 - [x] worker tier chain, junk guard, auto-rename, file-host staging
 - [x] lane pool, serial hosts, destination fallback, space guard
 - [x] console menu, records check, retry/skip failed
-- [x] revision-aware `--refresh` for updated posts
+- [x] content-aware `--refresh` for updated posts
 - [x] clipboard capture without CopyQ
 - [x] probe mode (`--probe`, `--probe-files`, menu 1 -> 5)
 - [ ] Linux support beyond the pure-Python parts

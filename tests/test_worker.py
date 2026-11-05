@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import dredge.worker as worker_module
@@ -25,14 +26,11 @@ def make_runner(behaviour: dict[str, dict]):
                 dest = Path(args[args.index(flag) + 1])
                 break
         manifest = None
-        hash_manifest = None
         for index, arg in enumerate(args):
             if arg in ("--Print-to-file", "--print-to-file") and index + 2 < len(args):
                 template = str(args[index + 1])
                 if "_path" in template or "filepath" in template:
                     manifest = Path(args[index + 2])
-                elif "{hash}" in template:
-                    hash_manifest = Path(args[index + 2])
         names = spec.get("files") or ([spec["file"]] if spec.get("file") else [])
         saved: list[str] = []
         if dest:
@@ -44,10 +42,6 @@ def make_runner(behaviour: dict[str, dict]):
         if manifest and saved:
             manifest.parent.mkdir(parents=True, exist_ok=True)
             manifest.write_text("\n".join(saved), encoding="utf-8")
-        if hash_manifest:
-            hashes = spec.get("hashes") or []
-            hash_manifest.parent.mkdir(parents=True, exist_ok=True)
-            hash_manifest.write_text("\n".join(hashes), encoding="utf-8")
         extractor_file = None
         for index, arg in enumerate(args):
             if (arg in ("--Print-to-file", "--print-to-file") and index + 2 < len(args)
@@ -493,25 +487,21 @@ def test_engine_yt_dlp_tries_yt_dlp_before_gallery_dl(tmp_path, monkeypatch):
     )
 
 
-def test_refresh_downloads_only_files_with_a_new_hash(tmp_path, monkeypatch):
+def test_refresh_redownloads_the_post_when_the_local_files_differ(tmp_path, monkeypatch):
     paths = Paths(tmp_path)
     settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
     calls: list[list[str]] = []
-    old_hash = "a" * 64
-    new_hash = "b" * 64
-    worker_module.refresh_mod.remember(
-        paths.revisions, "example.com/post/1", "2024-01-01", (old_hash,)
+    worker_module.refresh_mod.remember_folder(
+        paths.revisions, "example.com/post/1", str(tmp_path)
     )
     monkeypatch.setattr(
         worker_module.refresh_mod,
         "fetch_post",
         lambda *a, **k: worker_module.refresh_mod.PostMeta(
-            edited="2024-01-02", hashes=(old_hash, new_hash)
+            identities=("h:" + "b" * 64,)
         ),
     )
-    runner = make_runner(
-        {"gdl": {"rc": 0, "file": "clip.jpg", "hashes": [new_hash]}}
-    )
+    runner = make_runner({"gdl": {"rc": 0, "file": "clip.jpg"}})
 
     def fake(args, **kwargs):
         calls.append(list(args))
@@ -533,25 +523,28 @@ def test_refresh_downloads_only_files_with_a_new_hash(tmp_path, monkeypatch):
     assert verdict == "OK|gallery-dl"
     assert len(calls) == 1
     assert "--no-skip" in calls[0]
-    assert "--filter" in calls[0]
-    assert f"hash not in ('{old_hash}')" in calls[0]
+    assert "--filter" not in calls[0]
+    assert "revisions=unique" not in calls[0]
     row = worker_module.refresh_mod.load(paths.revisions)["example.com/post/1"]
-    assert row.edited == "2024-01-02"
-    assert row.hashes == (old_hash, new_hash)
+    assert row.folder == str(tmp_path / "dest")
 
 
-def test_refresh_stops_when_the_revision_is_unchanged(tmp_path, monkeypatch):
+def test_refresh_stops_when_every_file_is_present(tmp_path, monkeypatch):
     paths = Paths(tmp_path)
     settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
-    old_hash = "a" * 64
-    worker_module.refresh_mod.remember(
-        paths.revisions, "example.com/post/1", "2024-01-01", (old_hash,)
+    clip = tmp_path / "clip.jpg"
+    clip.write_bytes(b"x" * 100)
+    (tmp_path / "clip.jpg.json").write_text(
+        json.dumps({"hash": "a" * 64}), encoding="utf-8"
+    )
+    worker_module.refresh_mod.remember_folder(
+        paths.revisions, "example.com/post/1", str(tmp_path)
     )
     monkeypatch.setattr(
         worker_module.refresh_mod,
         "fetch_post",
         lambda *a, **k: worker_module.refresh_mod.PostMeta(
-            edited="2024-01-01", hashes=(old_hash,)
+            identities=("h:" + "a" * 64,)
         ),
     )
     calls: list[list[str]] = []
@@ -575,27 +568,21 @@ def test_refresh_stops_when_the_revision_is_unchanged(tmp_path, monkeypatch):
 
     assert verdict == "OK|gallery-dl"
     assert calls == []
-    assert "no newer revision" in (tmp_path / "lane1.log").read_text(encoding="utf-8")
+    log = (tmp_path / "lane1.log").read_text(encoding="utf-8")
+    assert "local files match" in log
 
 
-def test_refresh_does_a_full_download_when_the_recorded_folder_is_gone(
-    tmp_path, monkeypatch
-):
+def test_refresh_without_a_recorded_folder_downloads(tmp_path, monkeypatch):
     paths = Paths(tmp_path)
     settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
-    old_hash = "a" * 64
-    worker_module.refresh_mod.remember(
-        paths.revisions, "example.com/post/1", "2024-01-01", (old_hash,),
-        str(tmp_path / "gone"),
-    )
+    calls: list[list[str]] = []
     monkeypatch.setattr(
         worker_module.refresh_mod,
         "fetch_post",
         lambda *a, **k: worker_module.refresh_mod.PostMeta(
-            edited="2024-01-01", hashes=(old_hash,)
+            identities=("h:" + "a" * 64,)
         ),
     )
-    calls: list[list[str]] = []
     runner = make_runner({"gdl": {"rc": 0, "file": "clip.jpg"}})
 
     def fake(args, **kwargs):
@@ -617,29 +604,57 @@ def test_refresh_does_a_full_download_when_the_recorded_folder_is_gone(
 
     assert verdict == "OK|gallery-dl"
     assert "--no-skip" in calls[0]
-    assert "--filter" not in calls[0]
-    log = (tmp_path / "lane1.log").read_text(encoding="utf-8")
-    assert "recorded folder is gone" in log
+    row = worker_module.refresh_mod.load(paths.revisions)["example.com/post/1"]
+    assert row.folder == str(tmp_path / "dest")
 
 
-def test_refresh_ignore_records_skips_the_revision_ledger(tmp_path, monkeypatch):
+def test_refresh_with_incomplete_metadata_downloads(tmp_path, monkeypatch):
     paths = Paths(tmp_path)
     settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
-    old_hash = "a" * 64
-    worker_module.refresh_mod.remember(
-        paths.revisions, "example.com/post/1", "2024-01-01", (old_hash,), str(tmp_path)
-    )
+    calls: list[list[str]] = []
     monkeypatch.setattr(
         worker_module.refresh_mod,
         "fetch_post",
         lambda *a, **k: worker_module.refresh_mod.PostMeta(
-            edited="2024-01-01", hashes=(old_hash,)
+            identities=(), complete=False
         ),
     )
-    calls: list[list[str]] = []
-    runner = make_runner(
-        {"gdl": {"rc": 0, "file": "clip.jpg", "hashes": [old_hash]}}
+    runner = make_runner({"gdl": {"rc": 0, "file": "clip.jpg"}})
+
+    def fake(args, **kwargs):
+        calls.append(list(args))
+        return runner(args, **kwargs)
+
+    monkeypatch.setattr(worker_module, "run", fake)
+    worker = Worker(
+        paths, settings, Engines(yt="yt-dlp", gdl="gallery-dl"), knowledge()
     )
+    verdict = worker.download(
+        "https://example.com/post/1",
+        dest=tmp_path / "dest",
+        refresh=True,
+        lane_log=tmp_path / "lane1.log",
+        result=tmp_path / "lane1.result",
+        archive=tmp_path / "lane1.archive",
+    )
+
+    assert verdict == "OK|gallery-dl"
+    assert "--no-skip" in calls[0]
+
+
+def test_refresh_ignore_records_skips_the_file_check(tmp_path, monkeypatch):
+    paths = Paths(tmp_path)
+    settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
+    worker_module.refresh_mod.remember_folder(
+        paths.revisions, "example.com/post/1", str(tmp_path)
+    )
+    monkeypatch.setattr(
+        worker_module.refresh_mod,
+        "fetch_post",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("fetch_post called")),
+    )
+    calls: list[list[str]] = []
+    runner = make_runner({"gdl": {"rc": 0, "file": "clip.jpg"}})
 
     def fake(args, **kwargs):
         calls.append(list(args))
@@ -662,7 +677,6 @@ def test_refresh_ignore_records_skips_the_revision_ledger(tmp_path, monkeypatch)
     assert verdict == "OK|gallery-dl"
     assert calls
     assert "--no-skip" in calls[0]
-    assert "--filter" not in calls[0]
 
 
 def test_engine_yt_dlp_falls_back_to_gallery_dl(tmp_path, monkeypatch):

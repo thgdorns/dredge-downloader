@@ -2,7 +2,8 @@
   "name": "dredge",
   "image": "mcr.microsoft.com/devcontainers/python:3.13",
   "features": {
-    "ghcr.io/devcontainers/features/github-cli:1": {}
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/sshd:1": {}
   },
   "postCreateCommand": "python -m pip install --upgrade pip && python -m pip install -e '.[dev]' && python -m pip install yt-dlp gallery-dl",
   "customizations": {

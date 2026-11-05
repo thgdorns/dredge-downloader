@@ -1,6 +1,8 @@
 import threading
 from pathlib import Path
 
+import pytest
+
 from dredge import orchestrator, records
 from dredge.config import Paths, Runtime, Settings
 from dredge.orchestrator import (
@@ -14,6 +16,12 @@ from dredge.orchestrator import (
 )
 from dredge.sites import MirrorTable, SiteRule, parse_rule
 from dredge.urls import Knowledge
+
+
+@pytest.fixture(autouse=True)
+def _plenty_of_space(monkeypatch):
+    """Keep the pass-loop tests independent of the runner's free disk space."""
+    monkeypatch.setattr(orchestrator, "free_gb", lambda path: 100.0)
 
 
 def test_zero_lanes_are_clamped_to_one(tmp_path):

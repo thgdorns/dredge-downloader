@@ -67,6 +67,24 @@ A MEGA folder link is saved into a folder named after the online folder
 (decrypted from the link's key, e.g. `VR`); links whose folders have the same
 name merge into one destination folder.
 
+## Codespaces (Linux without a VM)
+
+Open the repository in a Codespace:
+
+<https://codespaces.new/thgdorns/dredge-downloader>
+
+The devcontainer installs the package, its test dependencies, `yt-dlp` and
+`gallery-dl`. Then, in the Codespace terminal:
+
+```bash
+pytest
+python -m dredge --version
+```
+
+The unit tests are cross-platform; the Linux CI job runs the same suite plus a
+CLI smoke test. For real downloads, copy the example configs from the Quick
+start below and point `dest_default` at a folder in the Codespace.
+
 ## Quick start
 
 ```powershell

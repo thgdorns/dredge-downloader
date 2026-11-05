@@ -34,6 +34,7 @@ class SiteRule:
     native: bool = False
     probe: tuple[str, ...] = ()
     gdl: tuple[str, ...] = ()
+    yt: tuple[str, ...] = ()      # extra yt-dlp arguments for this host
     key: str = ""
     playlist: str = ""
     postid: str = ""
@@ -106,6 +107,8 @@ def parse_rule(line: str) -> SiteRule | None:
             ))
         elif key == "gdl":
             rule.gdl = tuple(v.strip() for v in value.split(",") if v.strip())
+        elif key == "yt":
+            rule.yt = tuple(v.strip() for v in value.split(",") if v.strip())
         elif key in _SCALARS:
             setattr(rule, key, value.lower() if key in ("engine", "key", "dest", "author") else value)
         else:

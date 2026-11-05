@@ -245,6 +245,7 @@ class Worker:
 
         rule = self.knowledge.rule(url)
         dl_rule = self.knowledge.rule(dl) or rule
+        site_yt = list((dl_rule or rule).yt) if (dl_rule or rule) else []
 
         if not dry and probe_down(dl_rule, self.paths):
             self._lane(
@@ -341,7 +342,7 @@ class Worker:
             mark = len(self._buffer)
             rc, _ = run(
                 [self.engines.yt, "--ignore-config", "--config-locations",
-                 str(self.paths.ytdlp_conf), *yt_args, *ignore_args, *common,
+                 str(self.paths.ytdlp_conf), *yt_args, *site_yt, *ignore_args, *common,
                  *manifest_args, *progress_args, *extractor_args, *sim, dl],
                 cwd=self.paths.root, sink=self._sink,
             )
@@ -362,8 +363,9 @@ class Worker:
             sig1 = dir_signature(final_dest)
             rc, _ = run(
                 [self.engines.yt, "--ignore-config", "--config-locations",
-                 str(self.paths.ytdlp_conf), "--downloader", "native", *ignore_args,
-                 *common, *manifest_args, *progress_args, *extractor_args, dl],
+                 str(self.paths.ytdlp_conf), "--downloader", "native", *site_yt,
+                 *ignore_args, *common, *manifest_args, *progress_args,
+                 *extractor_args, dl],
                 cwd=self.paths.root, sink=self._sink,
             )
             if rc == 0 and produced(final_dest, sig1, self.text, False):
@@ -391,7 +393,7 @@ class Worker:
             self._lane(f"[yt-dlp-generic] {url}")
             rc, _ = run(
                 [self.engines.yt, "--ignore-config", "--config-locations",
-                 str(self.paths.ytdlp_generic_conf), *ignore_args, *common3,
+                 str(self.paths.ytdlp_generic_conf), *ignore_args, *site_yt, *common3,
                  *manifest_args, *progress_args, *extractor_args, *sim, dl],
                 cwd=self.paths.root, sink=self._sink,
             )

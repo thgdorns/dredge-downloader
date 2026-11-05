@@ -446,7 +446,7 @@ def test_gallery_dl_uses_the_ytdlp_display_name_for_the_author_folder(
 
 
 def test_engine_yt_dlp_tries_yt_dlp_before_gallery_dl(tmp_path, monkeypatch):
-    rule = parse_rule("example.com engine=yt-dlp")
+    rule = parse_rule("example.com engine=yt-dlp yt=--write-description")
     paths = Paths(tmp_path)
     settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
     calls: list[list[str]] = []
@@ -480,6 +480,11 @@ def test_engine_yt_dlp_tries_yt_dlp_before_gallery_dl(tmp_path, monkeypatch):
 
     assert verdict == "OK|yt-dlp"
     assert not any("gallery-dl" in Path(str(call[0])).stem for call in calls)
+    assert any(
+        "--write-description" in call
+        for call in calls
+        if "gallery-dl" not in Path(str(call[0])).stem
+    )
 
 
 def test_engine_yt_dlp_falls_back_to_gallery_dl(tmp_path, monkeypatch):

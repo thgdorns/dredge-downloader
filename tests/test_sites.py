@@ -4,7 +4,8 @@ from dredge.sites import find_rule, parse_rule
 def test_parse_full_line():
     rule = parse_rule(
         "iwara.tv  keep=all min=0 id=[A-Za-z0-9]{10,20} also=youtu.be native "
-        "itemurl=https://{host}/video/{id}/{slug} engine=gdl author=yt-dlp  # a comment"
+        "itemurl=https://{host}/video/{id}/{slug} engine=gdl author=yt-dlp "
+        "yt=--write-description  # a comment"
     )
     assert rule is not None
     assert rule.host == "iwara.tv"
@@ -12,6 +13,7 @@ def test_parse_full_line():
     assert rule.native is True
     assert rule.engine == "gdl"
     assert rule.author == "yt-dlp"
+    assert rule.yt == ("--write-description",)
     assert rule.also == ("youtu.be",)
 
 

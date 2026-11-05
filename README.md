@@ -189,7 +189,14 @@ example.com   keep=all min=0 id=[0-9]{6,} native list=^/(?:profile/[^/]+|videos)
 
 `keep=`, `min=`, `id=`, `also=`, `serial`, `native`, `probe=`, `gdl=`, `key=`,
 `playlist=`, `postid=`, `posturl=`, `itemurl=`, `tpl=`, `folder=`, `cookiedrop=`,
-`engine=`, `author=`, `list=`, `dest=`, `rewrite=`. The example file documents each one.
+`engine=`, `author=`, `list=`, `dest=`, `rewrite=`, `yt=`. The example file documents each one.
+
+`yt=ARGS` passes extra yt-dlp arguments for a host (comma-separated), for
+example `yt=--write-description`. The iwara rule uses that; the kemono,
+pawchive and iwara sections of `gallery-dl.conf` enable the `metadata`
+postprocessor, so the post or video description is saved next to the media as
+a sidecar. Neither engine follows links found in a description — the sidecar is
+there so you can review them.
 
 `engine=yt-dlp` runs the yt-dlp tiers first and keeps gallery-dl as a fallback,
 for image pages or URLs yt-dlp cannot take. `engine=gdl` stops the chain early.

@@ -228,7 +228,7 @@ def show_tools_menu(runtime: Runtime) -> None:
         menu.MenuItem(
             "1",
             "url scan       JSON metadata in the default destination -> "
-            "reports/url-scan-*.tsv (the JSON is deleted; mega/mediafire/"
+            "reports/url-scan-*.html (the JSON is deleted; mega/mediafire/"
             "drive links go to queue.txt)",
         ),
         menu.MenuItem("2", "record report  fail/skip/offline/downloads HTML in reports/ (opens them)"),

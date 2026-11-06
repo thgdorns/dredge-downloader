@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Scan the default download folder for URLs and passwords, write TSV reports.
+"""Scan the default download folder for URLs and passwords, write HTML reports.
 
 This is the standalone URL hunter, wired to dredge: the folder defaults to the
 default destination in ``config/dredge.conf``, the reports land in
-``reports/url-scan-<stamp>.tsv`` and ``reports/passwords-<stamp>.tsv``, the
+``reports/url-scan-<stamp>.html`` and ``reports/passwords-<stamp>.html``, the
 metadata it read is sent to the recycle bin afterwards (its only content of
-interest is what was just extracted), and the URL report is opened at the end.
+interest is what was just extracted), and both reports are opened at the end.
 
 By default it reads the two sidecar kinds the downloaders leave behind:
 
@@ -30,9 +30,9 @@ joined by ``;``. A mega/mediafire/drive link is not reported at all: it is
 appended to ``data/queue.txt`` as ``url<TAB>folder``, pointing at the folder the
 link was found in, so dredge downloads it next to the post it belongs to.
 
-Output columns (one file each):
+Each HTML page is a self-contained sortable/filterable table with two columns:
     1. value -- the URL or password that was found
-    2. paths -- absolute path(s) of the file(s) that contained it, ';'-joined
+    2. Found in -- the absolute path(s) of the file(s) that contained it
 
 Examples:
     py tools\\url_scan.py                  # default destination, sidecars only
@@ -47,7 +47,6 @@ Examples:
 from __future__ import annotations
 
 import argparse
-import csv
 import html
 import json
 import os
@@ -341,11 +340,6 @@ def read_file(
     return decode_bytes(data, encoding)
 
 
-def sanitise_field(value: str) -> str:
-    """Keep each TSV row on one line and in exactly two columns."""
-    return value.replace("\t", "%09").replace("\r", "").replace("\n", "")
-
-
 def is_filehost(url: str) -> bool:
     """True for the links that belong in the queue, not in the report."""
     host = (urlsplit(url).hostname or "").lower().removeprefix("www.")
@@ -386,16 +380,133 @@ def queue_links(path: Path, rows: list[tuple[str, str]]) -> tuple[int, int]:
     return len(lines), skipped
 
 
-def write_tsv(path: Path, rows: list[tuple[str, str]]) -> None:
-    """``value<TAB>path`` per row, with every field kept to one line."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.writer(
-            handle, delimiter="\t", lineterminator="\n",
-            quoting=csv.QUOTE_MINIMAL,
+_REPORT_JS = """
+(function () {
+  "use strict";
+  const table = document.getElementById("t");
+  const tbody = table.tBodies[0];
+  const all = Array.from(tbody.rows);
+  const q = document.getElementById("q");
+  let key = "value";
+  let dir = 1;
+  function apply() {
+    const needle = q.value.trim().toLowerCase();
+    for (const row of all) {
+      row.style.display =
+        !needle || row.innerText.toLowerCase().includes(needle) ? "" : "none";
+    }
+    const idx = key === "value" ? 0 : 1;
+    const sorted = all.slice().sort(function (a, b) {
+      const x = a.cells[idx].innerText.toLowerCase();
+      const y = b.cells[idx].innerText.toLowerCase();
+      return (x < y ? -1 : x > y ? 1 : 0) * dir;
+    });
+    for (const row of sorted) tbody.appendChild(row);
+  }
+  document.querySelectorAll("th[data-key]").forEach(function (th) {
+    th.addEventListener("click", function () {
+      if (key === th.dataset.key) dir = -dir;
+      else { key = th.dataset.key; dir = 1; }
+      document.querySelectorAll("th[data-key]").forEach(function (other) {
+        other.classList.remove("sorted", "asc", "desc");
+      });
+      th.classList.add("sorted", dir === 1 ? "asc" : "desc");
+      apply();
+    });
+  });
+  q.addEventListener("input", apply);
+  document.getElementById("reset").addEventListener("click", function () {
+    q.value = "";
+    key = "value";
+    dir = 1;
+    document.querySelectorAll("th[data-key]").forEach(function (th) {
+      th.classList.remove("sorted", "asc", "desc");
+    });
+    apply();
+  });
+  apply();
+})();
+"""
+
+
+def _value_html(value: str) -> str:
+    """A URL as a link, a password as inline code."""
+    safe = html.escape(value, quote=True)
+    if value.lower().startswith(("http://", "https://")):
+        return f'<a href="{safe}" rel="noreferrer">{safe}</a>'
+    return f"<code>{safe}</code>"
+
+
+def render_report(
+    title: str, rows: list[tuple[str, str]], *, files: int, generated: str | None = None
+) -> str:
+    """One self-contained sortable/filterable HTML table."""
+    stamp = generated or time.strftime("%Y-%m-%d %H:%M")
+    parts = [
+        "<!doctype html>",
+        '<html lang="en"><head><meta charset="utf-8">',
+        f"<title>{html.escape(title)}</title>",
+        "<style>",
+        (
+            ":root{color-scheme:light dark}"
+            "body{font:15px/1.5 system-ui,Segoe UI,sans-serif;max-width:1400px;margin:2rem auto;"
+            "padding:0 1rem;color:#1d1d1f;background:#fff}"
+            "h1{font-size:1.5rem;margin:0 0 .25rem}"
+            ".meta{color:#666;margin:0 0 1rem}"
+            ".controls{display:flex;flex-wrap:wrap;gap:.6rem;align-items:end;margin:1rem 0}"
+            ".controls input{font:inherit;padding:.3rem .45rem;border:1px solid #c9c9cf;"
+            "border-radius:6px;background:transparent;color:inherit;min-width:22rem}"
+            ".controls button{font:inherit;padding:.3rem .7rem;border:1px solid #c9c9cf;"
+            "border-radius:6px;background:transparent;color:inherit}"
+            "table{border-collapse:collapse;width:100%}"
+            "th,td{text-align:left;padding:.35rem .5rem;border-bottom:1px solid #e4e4e8;"
+            "vertical-align:top}"
+            "th{position:sticky;top:0;background:#fff;cursor:pointer;user-select:none;"
+            "white-space:nowrap}"
+            "th.sorted.asc::after{content:' \\25B2'}th.sorted.desc::after{content:' \\25BC'}"
+            "td.value{word-break:break-all}td.paths{color:#555;word-break:break-word}"
+            "a{color:#0645ad}code{font-size:.95em}"
+            "@media (prefers-color-scheme:dark){body{background:#111;color:#eee}"
+            "th{background:#111}th,td{border-color:#333}.controls input,.controls button{"
+            "border-color:#555}a{color:#8ab4f8}td.paths{color:#aaa}}"
+        ),
+        "</style></head><body>",
+        f"<h1>{html.escape(title)}</h1>",
+        f'<p class="meta">{len(rows)} unique value(s) from {files} file(s); generated {stamp}</p>',
+        '<div class="controls">',
+        '<input id="q" type="search" placeholder="Filter value or path..." aria-label="Filter">',
+        '<button id="reset" type="button">Reset</button>',
+        "</div>",
+        '<table id="t"><thead><tr>',
+        '<th data-key="value">Value</th><th data-key="paths">Found in</th>',
+        "</tr></thead><tbody>",
+    ]
+    for value, paths in rows:
+        cells = "".join(
+            f'<div class="path">{html.escape(path)}</div>'
+            for path in paths.split(";") if path
         )
-        for value, full_path in rows:
-            writer.writerow([sanitise_field(value), sanitise_field(full_path)])
+        parts.append(
+            '<tr class="row">'
+            f'<td class="value">{_value_html(value)}</td>'
+            f'<td class="paths">{cells}</td>'
+            "</tr>"
+        )
+    parts.extend([
+        "</tbody></table>",
+        "<script>",
+        _REPORT_JS,
+        "</script>",
+        "</body></html>",
+    ])
+    return "\n".join(parts) + "\n"
+
+
+def write_html(
+    path: Path, title: str, rows: list[tuple[str, str]], *, files: int
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(render_report(title, rows, files=files), encoding="utf-8", newline="")
 
 
 # --------------------------------------------------------------------------
@@ -408,37 +519,11 @@ def default_destination(root: Path) -> Path:
     return settings.destinations[settings.default_dest].path
 
 
-def _tsv_has_handler() -> bool:
-    """True when Windows has something registered for .tsv (assoc or user choice)."""
-    try:
-        import winreg
-    except ImportError:
-        return False
-    for root, key in (
-        (winreg.HKEY_CURRENT_USER,
-         r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.tsv\UserChoice"),
-        (winreg.HKEY_CLASSES_ROOT, ".tsv"),
-    ):
-        try:
-            with winreg.OpenKey(root, key) as handle:
-                value, _ = winreg.QueryValueEx(handle, "" if key == ".tsv" else "ProgId")
-                if value:
-                    return True
-        except OSError:
-            continue
-    return False
-
-
 def open_report(path: Path) -> None:
-    """Open the TSV with whatever the desktop uses for it."""
+    """Open the HTML report in the desktop's browser."""
     try:
         if sys.platform == "win32":
-            if path.suffix.lower() == ".tsv" and not _tsv_has_handler():
-                # no association: falling back to the editor beats the
-                # "how do you want to open this file?" dialog on every scan
-                subprocess.Popen(["notepad.exe", str(path)])
-            else:
-                os.startfile(str(path), "open")  # type: ignore[attr-defined]
+            os.startfile(str(path), "open")  # type: ignore[attr-defined]
         else:
             subprocess.Popen(
                 ["xdg-open", str(path)],
@@ -537,8 +622,8 @@ def recycle(paths: list[Path]) -> tuple[int, list[str]]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Recursively find URLs in files and write them to a TSV "
-                    "(column 1: url, column 2: absolute file path).",
+        description="Recursively find URLs in files and write them to a "
+                    "sortable HTML report (value + absolute file path).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__.split("Examples:", 1)[1] if "Examples:" in __doc__ else None,
     )
@@ -553,7 +638,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "-o", "--output", default=None,
-        help="output TSV path (default: reports/url-scan-<stamp>.tsv)",
+        help="output HTML path (default: reports/url-scan-<stamp>.html)",
     )
     parser.add_argument(
         "-e", "--ext", "--extensions", nargs="+", default=None,
@@ -614,7 +699,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--no-passwords", action="store_true",
         help="do not look for password hints (default: also write "
-             "passwords-<stamp>.tsv)",
+             "passwords-<stamp>.html)",
     )
     parser.add_argument(
         "--no-open", action="store_true",
@@ -644,11 +729,13 @@ def main(argv: list[str] | None = None) -> int:
         output = Path(args.output).expanduser()
         if not output.is_absolute():
             output = (root / output).resolve()
+        if output.suffix.lower() not in (".html", ".htm"):
+            output = output.with_suffix(".html")
         stamp = time.strftime("%Y%m%d-%H%M%S")
     else:
         stamp = time.strftime("%Y%m%d-%H%M%S")
-        output = root / "reports" / f"url-scan-{stamp}.tsv"
-    passwords_output = output.parent / f"passwords-{stamp}.tsv"
+        output = root / "reports" / f"url-scan-{stamp}.html"
+    passwords_output = output.parent / f"passwords-{stamp}.html"
 
     if args.ext is None:
         exts: set[str] | None = set(DEFAULT_EXTENSIONS)
@@ -716,9 +803,9 @@ def main(argv: list[str] | None = None) -> int:
             continue
         queue_rows.append((url, str(Path(paths.split(";", 1)[0]).parent)))
 
-    write_tsv(output, report_rows)
+    write_html(output, "URL scan", report_rows, files=len(scanned))
     if not args.no_passwords:
-        write_tsv(passwords_output, password_table)
+        write_html(passwords_output, "Passwords", password_table, files=len(scanned))
 
     queued = 0
     already = 0

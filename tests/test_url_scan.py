@@ -80,11 +80,14 @@ def test_the_scan_ignores_attachment_urls(tmp_path):
     ])
 
     assert code == 0
-    report = next((tmp_path / "reports").glob("url-scan-*.tsv"))
+    report = next((tmp_path / "reports").glob("url-scan-*.html"))
     text = report.read_text(encoding="utf-8")
     assert "https://example.com/post" in text
     assert "cdn.example.com" not in text
     assert "/x/a.jpg" not in text
+    assert '<table id="t">' in text
+    assert 'data-key="value"' in text
+    assert 'id="q"' in text
 
 
 def test_a_password_hint_yields_its_value():
@@ -131,11 +134,13 @@ def test_the_scan_writes_a_password_report(tmp_path):
 
     assert code == 0
     reports = tmp_path / "reports"
-    urls = next(reports.glob("url-scan-*.tsv")).read_text(encoding="utf-8")
-    passwords = next(reports.glob("passwords-*.tsv")).read_text(encoding="utf-8")
+    urls = next(reports.glob("url-scan-*.html")).read_text(encoding="utf-8")
+    passwords = next(reports.glob("passwords-*.html")).read_text(encoding="utf-8")
     assert "https://example.com/post" in urls
     assert "hunter2" in passwords
     assert "example.com" not in passwords
+    assert "<title>URL scan</title>" in urls
+    assert "<title>Passwords</title>" in passwords
 
 
 def test_one_row_per_value_with_every_source(tmp_path):
@@ -152,12 +157,14 @@ def test_one_row_per_value_with_every_source(tmp_path):
         "--keep-metadata", "--no-open", "-q",
     ])
 
-    rows = next((tmp_path / "reports").glob("url-scan-*.tsv")).read_text(
-        encoding="utf-8").splitlines()
-    assert len(rows) == 2
-    first = rows[0].split("\t")
-    assert first[0] == "https://example.com/one"
-    assert len(first[1].split(";")) == 2      # both sidecars, one row
+    text = next((tmp_path / "reports").glob("url-scan-*.html")).read_text(
+        encoding="utf-8")
+    assert text.count('<tr class="row">') == 2
+    assert text.count('<td class="value">') == 2
+    assert "https://example.com/one" in text
+    assert "https://example.com/two" in text
+    assert text.count("a.jpg.json") == 2      # both sidecars, one row per value
+    assert text.count("b.jpg.json") == 2
 
 
 def test_file_host_links_are_queued_into_their_folder(tmp_path):
@@ -181,7 +188,7 @@ def test_file_host_links_are_queued_into_their_folder(tmp_path):
         f"https://drive.google.com/file/d/abc/view\t{folder}",
         f"https://mega.nz/file/xyz#key\t{folder}",
     ]
-    report = next((tmp_path / "reports").glob("url-scan-*.tsv")).read_text(
+    report = next((tmp_path / "reports").glob("url-scan-*.html")).read_text(
         encoding="utf-8")
     assert "example.com/keep" in report
     assert "drive.google.com" not in report
@@ -202,7 +209,7 @@ def test_no_queue_keeps_the_file_host_links_in_the_report(tmp_path):
     ])
 
     assert not (tmp_path / "data" / "queue.txt").exists()
-    report = next((tmp_path / "reports").glob("url-scan-*.tsv")).read_text(
+    report = next((tmp_path / "reports").glob("url-scan-*.html")).read_text(
         encoding="utf-8")
     assert "drive.google.com/file/d/abc/view" in report
 

@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 
 from dredge import records, state, tui
@@ -181,3 +182,51 @@ def test_files_menu_opens_the_latest_run_log(tmp_path, monkeypatch):
     tui.show_files_menu(runtime)
 
     assert opened == [new]
+
+
+def test_tools_menu_runs_the_url_scan(tmp_path, monkeypatch):
+    paths = Paths(tmp_path)
+    paths.ensure()
+    paths.tools.mkdir(parents=True, exist_ok=True)
+    script = paths.tools / "url_scan.py"
+    script.write_text("# tool\n", encoding="utf-8")
+    runtime = Runtime(paths, Settings.load(paths))
+    calls: list[list[str]] = []
+    answers = iter(["1", None])
+    monkeypatch.setattr(tui.menu, "select", lambda *a, **k: next(answers, None))
+    monkeypatch.setattr(
+        tui.subprocess, "call", lambda argv: calls.append(argv) or 0
+    )
+
+    tui.show_tools_menu(runtime)
+
+    assert calls == [[sys.executable, str(script), "--root", str(paths.root)]]
+
+
+def test_tools_menu_writes_the_record_report(tmp_path, monkeypatch):
+    paths = Paths(tmp_path)
+    paths.ensure()
+    runtime = Runtime(paths, Settings.load(paths))
+    seen: list[Path] = []
+    written = {"fail": paths.root / "reports" / "fail.html"}
+    answers = iter(["2", None])
+    monkeypatch.setattr(tui.menu, "select", lambda *a, **k: next(answers, None))
+    monkeypatch.setattr(
+        tui, "write_reports", lambda root: seen.append(root) or written
+    )
+
+    tui.show_tools_menu(runtime)
+
+    assert seen == [paths.root]
+
+
+def test_the_main_menu_opens_the_tools_submenu(tmp_path, monkeypatch):
+    _, runtime, knowledge = setup(tmp_path)
+    opened: list[Runtime] = []
+    answers = iter(["3", None])
+    monkeypatch.setattr(tui.menu, "select", lambda *a, **k: next(answers, None))
+    monkeypatch.setattr(tui, "show_tools_menu", opened.append)
+
+    tui.show_dredge_menu(runtime, knowledge)
+
+    assert opened == [runtime]

@@ -7,12 +7,14 @@ records-check wording, so the same muscle memory works in both implementations.
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
 
 from . import menu, paint, records, state
 from .config import Runtime
+from .report import write_reports
 from .urls import Knowledge
 
 
@@ -190,6 +192,7 @@ def show_dredge_menu(
             "1", "checks    records check, retry failed/skipped, skip failed, probe files, lanes, pause"
         ),
         menu.MenuItem("2", "files     downloads.tsv, queue.txt, fail.txt, offline.txt, skip.txt, run log"),
+        menu.MenuItem("3", "tools     url scan (JSON -> reports/), record report (fail/offline HTML)"),
     ]
     while True:
         choice = menu.select("dredge menu", items)
@@ -202,6 +205,55 @@ def show_dredge_menu(
             )
         elif choice == "2":
             show_files_menu(runtime)
+        elif choice == "3":
+            show_tools_menu(runtime)
+
+
+def show_tools_menu(runtime: Runtime) -> None:
+    items = [
+        menu.MenuItem(
+            "1",
+            "url scan       JSON metadata in the default destination -> "
+            "reports/url-scan-*.tsv (the JSON is deleted)",
+        ),
+        menu.MenuItem("2", "record report  fail.html and offline.html in reports/"),
+    ]
+    while True:
+        choice = menu.select("tools", items, close="back")
+        if choice is None:
+            return
+        if choice == "1":
+            run_url_scan(runtime)
+        elif choice == "2":
+            run_record_report(runtime)
+
+
+def run_url_scan(runtime: Runtime) -> None:
+    """Run ``tools/url_scan.py`` against the default destination."""
+    script = runtime.paths.tools / "url_scan.py"
+    if not script.exists():
+        _say(f"missing: {script}", "yellow")
+        return
+    _say("scanning the default destination for JSON metadata ...", "darkgray")
+    try:
+        code = subprocess.call(
+            [sys.executable, str(script), "--root", str(runtime.paths.root)]
+        )
+    except OSError as exc:
+        _say(f"could not run it: {exc}", "red")
+        return
+    if code != 0:
+        _say(f"url scan exited with {code}.", "red")
+
+
+def run_record_report(runtime: Runtime) -> None:
+    try:
+        written = write_reports(runtime.paths.root)
+    except OSError as exc:
+        _say(f"could not write the reports: {exc}", "red")
+        return
+    for name, path in written.items():
+        _say(f"{name}: {path}", "green")
 
 
 def retry_skipped(runtime: Runtime, knowledge: Knowledge) -> None:

@@ -238,6 +238,13 @@ class Worker:
             else:
                 self._lane(f"[url] tracking stripped: {dl}")
         final_dest.mkdir(parents=True, exist_ok=True)
+        # Published so the pass can link the lane line at the folder this URL
+        # writes into: the same folder the worker just resolved, file-host
+        # collection folder included.
+        try:
+            self.paths.lane_dest(slot).write_text(str(final_dest), encoding="utf-8")
+        except OSError:
+            pass
 
         dry = self.settings.dry_run
         sim = ["--simulate"] if dry else []

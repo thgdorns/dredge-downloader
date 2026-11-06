@@ -53,3 +53,44 @@ def test_board_keeps_active_lanes_when_the_limit_shrinks():
 
     board.ensure([1], active=[])
     assert sorted(board._lines) == [1]
+
+
+def test_the_lane_label_and_file_name_link_to_the_folder():
+    board = LaneBoard()
+    board.set_progress(
+        1, 2, 10, "clip.mp4", "45.3%", "1.6 MiB/s", folder="file:///G:/x/"
+    )
+
+    spans = board._lines[1].spans
+    assert "link file:///G:/x/" in str(spans[0].style)     # "lane 1: "
+    assert "link file:///G:/x/" in str(spans[2].style)     # the file name
+
+
+def test_a_url_in_the_lane_is_not_hijacked():
+    board = LaneBoard()
+    board.set_progress(
+        1, 2, 10, "https://example.com/x", "", "", folder="file:///G:/x/"
+    )
+
+    line = board._lines[1]
+    start = line.plain.index("https://example.com/x")
+    assert not [span for span in line.spans if span.start <= start < span.end]
+
+
+def test_a_finished_lane_links_the_file_and_the_folder():
+    board = LaneBoard()
+    board.set_done(
+        1, 2, 10, "OK|gallery-dl", "  -> clip.mp4",
+        folder="file:///G:/x/", target="file:///G:/x/clip.mp4",
+    )
+
+    spans = board._lines[1].spans
+    assert "link file:///G:/x/" in str(spans[0].style)
+    assert "link file:///G:/x/clip.mp4" in str(spans[-1].style)
+
+
+def test_without_uris_the_line_stays_plain():
+    board = LaneBoard()
+    board.set_done(1, 2, 10, "OK|gallery-dl", "  -> clip.mp4")
+
+    assert all("link" not in str(span.style) for span in board._lines[1].spans)

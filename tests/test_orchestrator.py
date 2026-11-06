@@ -198,13 +198,13 @@ class FakeBoard:
     def ensure(self, slots, active=()) -> None:
         pass
 
-    def set_url(self, slot, index, total, url) -> None:
+    def set_url(self, slot, index, total, url, folder="") -> None:
         self.urls.append((slot, url))
 
-    def set_progress(self, slot, index, total, name, pct, speed) -> None:
+    def set_progress(self, slot, index, total, name, pct, speed, folder="") -> None:
         pass
 
-    def set_done(self, slot, index, total, verdict, files) -> None:
+    def set_done(self, slot, index, total, verdict, files, folder="", target="") -> None:
         self.done.append((slot, verdict))
 
     def idle(self, slot) -> None:
@@ -272,7 +272,10 @@ def test_a_terminal_gets_one_line_per_lane(tmp_path, monkeypatch):
     assert stats is not None
     assert board.started == 1
     assert board.stopped == 1
-    assert board.urls == [(1, "https://example.com/good")]
+    # the URL line is re-rendered while the lane has no file name yet, so the
+    # folder link can appear as soon as the worker publishes it
+    assert board.urls[0] == (1, "https://example.com/good")
+    assert {slot for slot, _url in board.urls} == {1}
     assert board.done == [(1, "OK|gallery-dl")]
     assert board.refreshes >= 1
 
@@ -347,4 +350,44 @@ def test_files_summary_lists_every_name():
     ]
     assert _files_summary(rows) == "  -> a.mp4; b.mp4; c.mp4"
     assert _files_summary([]) == ""
+
+
+def test_a_finished_line_links_the_file_and_the_folder(tmp_path, monkeypatch):
+    from dredge import paint as paint_module
+
+    monkeypatch.setattr(paint_module, "enabled", lambda: True)
+    paths = Paths(tmp_path)
+    paths.ensure()
+    settings = Settings.load(
+        paths, dest_default=tmp_path / "dest", max_downloads=1,
+        no_capture=True, progress_every_seconds=0,
+    )
+    records.write_lines(paths.queue, ["https://example.com/good"])
+
+    class LinkedWorker(FakeWorker):
+        """Publishes the lane folder and the file the worker wrote."""
+
+        def download(self, url, **kwargs):
+            slot = kwargs["slot"]
+            dest = tmp_path / "dest" / "creator"
+            dest.mkdir(parents=True, exist_ok=True)
+            clip = dest / "clip.mp4"
+            clip.write_bytes(b"x" * 10)
+            Path(paths.lane_dest(slot)).write_text(str(dest), encoding="utf-8")
+            Path(paths.lane_files(slot)).write_text(str(clip), encoding="utf-8")
+            return super().download(url, **kwargs)
+
+    monkeypatch.setattr(orchestrator, "Worker", LinkedWorker)
+    runtime = Runtime(paths, settings)
+    messages: list[str] = []
+    run_pass(
+        runtime, Knowledge({}, SiteRule(host="*"), MirrorTable()),
+        orchestrator.Engines(), out=messages.append,
+    )
+
+    text = "\n".join(messages)
+    creator = paint_module.file_uri(tmp_path / "dest" / "creator")
+    clip = paint_module.file_uri(tmp_path / "dest" / "creator" / "clip.mp4")
+    assert paint_module.link("lane 1", creator) in text
+    assert paint_module.link("  -> clip.mp4", clip) in text
 

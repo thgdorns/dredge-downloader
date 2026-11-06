@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import re
 import sys
+from pathlib import Path
 
 RESET = "\x1b[0m"
 
@@ -26,6 +27,9 @@ CODES = {
 }
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
+# OSC 8 hyperlinks (``ESC ] 8 ; params ; URI ST``): the URI is invisible in the
+# text, so it has to be removed when the output is mirrored to a log file.
+_OSC8 = re.compile(r"\x1b\]8;[^\x1b\x07]*(?:\x1b\\|\x07)")
 _vt: bool | None = None
 
 
@@ -82,7 +86,50 @@ def paint(text: str, color: str) -> str:
 
 def strip(text: str) -> str:
     """``text`` without ANSI codes, for the console mirror log."""
-    return _ANSI.sub("", text)
+    return _OSC8.sub("", _ANSI.sub("", text))
+
+
+def link(text: str, url: str) -> str:
+    """``text`` as a clickable hyperlink (OSC 8), when colour is on.
+
+    ``url`` may be http(s) or ``file:`` - the terminal's own handler decides
+    what to do with it, which is why the same code works on Windows and Linux.
+    The URI is written with the text, so ``strip`` removes it again for logs.
+    """
+    if not text or not url or not enabled():
+        return text
+    return f"\x1b]8;;{url}\x1b\\{text}\x1b]8;;\x1b\\"
+
+
+_URL_SAFE = frozenset(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~/:@!$&'()*+,;="
+)
+
+
+def file_uri(path: str | Path) -> str:
+    """A ``file://`` URI both Windows and Linux open, or ``""``.
+
+    Non-ASCII stays literal on purpose: the Windows shell reads %XX escapes in
+    a ``file:`` URI as ANSI bytes, so a percent-encoded CJK path resolves to
+    nothing, while the same path written as UTF-8 opens correctly (checked
+    against the shell's own name parser, ``SHParseDisplayName``). Spaces and
+    the other reserved characters are still escaped.
+    """
+    target = Path(path)
+    if not target.is_absolute():
+        return ""
+    posix = target.as_posix()
+    if posix.startswith("//"):          # a UNC share: \\server\share
+        prefix = "file:"
+    else:
+        prefix = "file://"
+        posix = "/" + posix
+    encoded = "".join(
+        ch if ch in _URL_SAFE or ord(ch) > 0x7F
+        else "".join(f"%{byte:02X}" for byte in ch.encode("utf-8"))
+        for ch in posix
+    )
+    return prefix + encoded
 
 
 def cyan(text: str) -> str:

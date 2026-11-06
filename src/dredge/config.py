@@ -175,6 +175,9 @@ class Paths:
     def lane_files(self, slot: int) -> Path:
         return self.logs / f"lane{slot}.files"
 
+    def lane_dest(self, slot: int) -> Path:
+        return self.logs / f"lane{slot}.dest"
+
     def lane_extractor(self, slot: int) -> Path:
         return self.logs / f"lane{slot}.extractor"
 

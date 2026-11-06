@@ -1,4 +1,4 @@
-﻿"""The pass loop: take the queue, run the lanes, fold the rows, come back.
+"""The pass loop: take the queue, run the lanes, fold the rows, come back.
 
 Threads run the worker in this process. The legacy script spawned a child
 PowerShell per URL; a thread is enough here because every engine call is a
@@ -194,6 +194,7 @@ def run_pass(
     full_dests: set[str] = set()
     progress_at = time.monotonic()
     progress_last: dict[int, tuple[str, bool]] = {}
+    dest_uri: dict[int, str] = {}
     queued_canon = {key for u in ordered for key in knowledge.keys(u)}
 
     board = _make_board(out)
@@ -272,9 +273,18 @@ def run_pass(
                 for slot in sorted(active):
                     name, pct, speed = lane_status_tail(paths.lane_log(slot))
                     lane = active[slot]
+                    if not dest_uri.get(slot):
+                        here = _read_dest(paths.lane_dest(slot))
+                        dest_uri[slot] = paint.file_uri(here) if here else ""
+                    folder = dest_uri.get(slot, "")
                     if name:
                         board.set_progress(
-                            slot, lane.index, len(ordered), name, pct, speed
+                            slot, lane.index, len(ordered), name, pct, speed,
+                            folder=folder,
+                        )
+                    else:
+                        board.set_url(
+                            slot, lane.index, len(ordered), lane.url, folder=folder,
                         )
                 for slot in range(1, runtime.max_downloads + 1):
                     if slot not in active:
@@ -372,11 +382,30 @@ def run_pass(
                     if attempted and not attempted.lower().startswith(("http://", "https://")):
                         files = f"  -> {attempted}"
                 done += 1
+                # The file manifest and the lane's destination folder make the
+                # finished line clickable: the name opens the file, "lane N"
+                # opens the folder it landed in.
+                made = _lane_files(paths.lane_files(slot))
+                target_uri = paint.file_uri(made[0]) if len(made) == 1 else ""
+                folder_uri = paint.file_uri(made[0].parent) if made else dest_uri.pop(slot, "")
+                dest_uri.pop(slot, None)
                 detail = f"{verdict}  {lane.url}{files}"
                 _log_line(stats.log, f"[{stamp()}] {detail}")
-                out(f"[{stamp()}] {done}/{len(ordered)}: lane {slot}: {detail}")
+                label = (
+                    paint.link(f"lane {slot}", folder_uri) if folder_uri
+                    else f"lane {slot}"
+                )
+                shown = (
+                    paint.link(files, target_uri or folder_uri)
+                    if files and (target_uri or folder_uri) else files
+                )
+                out(f"[{stamp()}] {done}/{len(ordered)}: {label}: {verdict}  "
+                    f"{lane.url}{shown}")
                 if board:
-                    board.set_done(slot, lane.index, len(ordered), verdict, files)
+                    board.set_done(
+                        slot, lane.index, len(ordered), verdict, files,
+                        folder=folder_uri, target=target_uri,
+                    )
 
         if not settings.dry_run:
             merged_end = merge_pending(
@@ -462,6 +491,24 @@ def _files_summary(rows: list[str]) -> str:
     if not names:
         return ""
     return "  -> " + "; ".join(names)
+
+
+def _lane_files(path: Path) -> list[Path]:
+    """Absolute paths the lane wrote, from its ``laneN.files`` manifest."""
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    return [Path(line.strip()) for line in lines if line.strip()]
+
+
+def _read_dest(path: Path) -> Path | None:
+    """The folder the lane published for its current URL."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return None
+    return Path(text) if text else None
 
 
 def _warn_pages(rows: list[str], out, stamp) -> None:

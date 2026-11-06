@@ -205,7 +205,6 @@ class Worker:
         result: str | Path | None = None,
         archive: str | Path | None = None,
         slot: int = 0,
-        exact: bool = False,
         queue_spec: str = "",
     ) -> str:
         self._buffer = []
@@ -328,14 +327,13 @@ class Worker:
             engine = self._filehost_engine(dl, final_dest, dl_rule, files_manifest)
 
         # --- tiers 2-3: yt-dlp ------------------------------------------
-        if exact:
-            # an explicit destination from the queue line: files go there and
-            # nowhere else, so the site's own folder layout is not applied
-            tpl = self.settings.tpl_flat
+        # dest_tpl wins over the site rule: it is either the destination's own
+        # template or a full path template built from a queue line's
+        # destination, and in both cases the caller was explicit about it.
+        if dest_tpl:
+            tpl = dest_tpl
         elif rule and rule.tpl:
             tpl = rule.tpl
-        elif dest_tpl:
-            tpl = dest_tpl
         elif flat:
             tpl = self.settings.tpl_flat
         elif folder:
@@ -343,12 +341,10 @@ class Worker:
         else:
             tpl = self.settings.tpl_default
         common = ["-P", str(final_dest), "-o", tpl]
-        if flat or folder:
+        if flat or folder or dest_tpl:
             common3 = common
         elif rule and rule.tpl:
             common3 = ["-P", str(final_dest), "-o", rule.tpl]
-        elif dest_tpl:
-            common3 = ["-P", str(final_dest), "-o", dest_tpl]
         else:
             common3 = ["-P", str(final_dest), "-o", self.settings.tpl_generic]
         manifest_args = ["--print-to-file", "after_move:filepath", str(files_manifest)]

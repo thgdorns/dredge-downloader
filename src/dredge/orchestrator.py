@@ -217,9 +217,12 @@ def run_pass(
                 target = destination_for(url, knowledge, settings)
                 override = destination_override(spec, target.path) if spec else None
                 dest_root = override or target.path
-                # An explicit destination wins over the site's folder layout:
-                # files land in exactly that folder, nothing added underneath.
-                exact = override is not None
+                # A queue line's destination is handed to the engine as a full
+                # filepath template, so the engine writes there and nothing is
+                # added underneath; gallery-dl gets the folder plus -D.
+                dest_tpl = (
+                    str(override / settings.tpl_flat) if override else target.tpl
+                )
                 if not settings.dry_run:
                     if str(dest_root).lower() in full_dests:
                         continue        # leave it in queue.txt; this pass skips it
@@ -263,10 +266,10 @@ def run_pass(
                 )
                 thread = threading.Thread(
                     target=_run_worker,
-                    args=(worker, url, dest_root, target.layout == "flat" or exact,
-                          "" if exact else target.tpl,
+                    args=(worker, url, dest_root, target.layout == "flat" or bool(override),
+                          dest_tpl,
                           not runtime.archive_check, lane_log, lane_result, lane_archive, slot),
-                    kwargs={"exact": exact, "spec": spec},
+                    kwargs={"spec": spec},
                     daemon=True,
                 )
                 active[slot] = Lane(slot, url, thread, lane_result, lane_archive,
@@ -463,14 +466,13 @@ def _run_worker(
     archive: Path,
     slot: int,
     *,
-    exact: bool = False,
     spec: str = "",
 ) -> None:
     try:
         worker.download(
             url, dest=dest, flat=flat, dest_tpl=dest_tpl, ignore_records=ignore,
             lane_log=lane_log, result=result, archive=archive, slot=slot,
-            exact=exact, queue_spec=spec,
+            queue_spec=spec,
         )
     except Exception as exc:  # noqa: BLE001 - one URL must never kill the pass
         try:

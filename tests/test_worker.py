@@ -666,8 +666,8 @@ def test_unpinned_host_still_walks_the_chain(tmp_path, monkeypatch):
     assert verdict == "OK|yt-dlp"
 
 
-def test_an_exact_destination_ignores_the_site_template(tmp_path, monkeypatch):
-    """A queued destination means "files go here", not "here/<uploader>/"."""
+def test_a_filepath_template_beats_the_site_template(tmp_path, monkeypatch):
+    """A queued destination is handed over as a full -o template."""
     rule = parse_rule("example.com tpl=%(uploader)s/%(title)s.%(ext)s")
     paths = Paths(tmp_path)
     settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
@@ -682,11 +682,12 @@ def test_an_exact_destination_ignores_the_site_template(tmp_path, monkeypatch):
     monkeypatch.setattr(worker_module, "run", fake)
     worker = Worker(paths, settings, Engines(yt="yt-dlp", gdl="gallery-dl"),
                     knowledge(rule))
+    wanted = str(tmp_path / "dest" / "Author" / settings.tpl_flat)
     verdict = worker.download(
         "https://example.com/post/1",
         dest=tmp_path / "dest" / "Author",
         flat=True,
-        exact=True,
+        dest_tpl=wanted,
         lane_log=tmp_path / "lane1.log",
         result=tmp_path / "lane1.result",
         archive=tmp_path / "lane1.archive",
@@ -694,8 +695,7 @@ def test_an_exact_destination_ignores_the_site_template(tmp_path, monkeypatch):
 
     assert verdict == "OK|yt-dlp"
     yt = next(call for call in calls if "gallery-dl" not in Path(str(call[0])).stem)
-    assert yt[yt.index("-o") + 1] == settings.tpl_flat
-    assert (tmp_path / "dest" / "Author" / "clip.mp4").is_file()
+    assert yt[yt.index("-o") + 1] == wanted
 
 
 def test_an_expanded_listing_keeps_the_queued_destination(tmp_path, monkeypatch):

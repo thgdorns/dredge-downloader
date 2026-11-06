@@ -438,11 +438,11 @@ def test_a_queued_name_goes_into_that_subfolder(tmp_path, monkeypatch):
         no_capture=True, progress_every_seconds=0,
     )
     records.write_lines(paths.queue, ["https://example.com/good\tSome Author"])
-    seen: list[tuple[str, Path, bool]] = []
+    seen: list[tuple[str, Path, str]] = []
 
     class RecordingWorker(FakeWorker):
         def download(self, url, **kwargs):
-            seen.append((url, Path(kwargs["dest"]), kwargs.get("exact")))
+            seen.append((url, Path(kwargs["dest"]), kwargs["dest_tpl"]))
             return super().download(url, **kwargs)
 
     monkeypatch.setattr(orchestrator, "Worker", RecordingWorker)
@@ -452,8 +452,9 @@ def test_a_queued_name_goes_into_that_subfolder(tmp_path, monkeypatch):
         orchestrator.Engines(), out=lambda message: None,
     )
 
+    author = tmp_path / "dest" / "Some Author"
     assert seen == [
-        ("https://example.com/good", tmp_path / "dest" / "Some Author", True)
+        ("https://example.com/good", author, str(author / settings.tpl_flat))
     ]
 
 
@@ -466,11 +467,11 @@ def test_a_queued_path_is_used_exactly(tmp_path, monkeypatch):
     )
     elsewhere = tmp_path / "elsewhere"
     records.write_lines(paths.queue, [f"https://example.com/good\t{elsewhere}"])
-    seen: list[tuple[Path, bool]] = []
+    seen: list[tuple[Path, str]] = []
 
     class RecordingWorker(FakeWorker):
         def download(self, url, **kwargs):
-            seen.append((Path(kwargs["dest"]), kwargs.get("exact")))
+            seen.append((Path(kwargs["dest"]), kwargs["dest_tpl"]))
             return super().download(url, **kwargs)
 
     monkeypatch.setattr(orchestrator, "Worker", RecordingWorker)
@@ -480,5 +481,5 @@ def test_a_queued_path_is_used_exactly(tmp_path, monkeypatch):
         orchestrator.Engines(), out=lambda message: None,
     )
 
-    assert seen == [(elsewhere, True)]
+    assert seen == [(elsewhere, str(elsewhere / settings.tpl_flat))]
 

@@ -347,11 +347,37 @@ def default_destination(root: Path) -> Path:
     return settings.destinations[settings.default_dest].path
 
 
+def _tsv_has_handler() -> bool:
+    """True when Windows has something registered for .tsv (assoc or user choice)."""
+    try:
+        import winreg
+    except ImportError:
+        return False
+    for root, key in (
+        (winreg.HKEY_CURRENT_USER,
+         r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.tsv\UserChoice"),
+        (winreg.HKEY_CLASSES_ROOT, ".tsv"),
+    ):
+        try:
+            with winreg.OpenKey(root, key) as handle:
+                value, _ = winreg.QueryValueEx(handle, "" if key == ".tsv" else "ProgId")
+                if value:
+                    return True
+        except OSError:
+            continue
+    return False
+
+
 def open_report(path: Path) -> None:
     """Open the TSV with whatever the desktop uses for it."""
     try:
         if sys.platform == "win32":
-            os.startfile(str(path), "open")  # type: ignore[attr-defined]
+            if path.suffix.lower() == ".tsv" and not _tsv_has_handler():
+                # no association: falling back to the editor beats the
+                # "how do you want to open this file?" dialog on every scan
+                subprocess.Popen(["notepad.exe", str(path)])
+            else:
+                os.startfile(str(path), "open")  # type: ignore[attr-defined]
         else:
             subprocess.Popen(
                 ["xdg-open", str(path)],
@@ -664,7 +690,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.no_open:
         open_report(output)
-        if not args.no_passwords and password_rows:
+        if not args.no_passwords:
             open_report(passwords_output)
     return 0
 

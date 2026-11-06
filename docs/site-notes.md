@@ -124,6 +124,8 @@ engines see it).
   `niconico:channel`, `niconico:live` and `NiconicoUser`.
 - `/watch/<id>`, `/shorts/<id>` and `sp.nicovideo.jp` all match the extractor;
   `nico.ms/<id>` is the shortener for the same video, hence `also=nico.ms`.
+  `id=[a-z]{2}\d+` folds both shapes into the same archive key, so pasting the
+  short form after the long form is not a second download.
 - **Descriptions.** `--write-description` (`yt=`) writes the post text as plain
   UTF-8 next to the video: `<uploader>/<title>.description` (checked with yt-dlp
   2026.11.04 on `sm9`). Playlist metadata is written by default

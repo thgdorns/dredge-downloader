@@ -21,15 +21,19 @@ OFFLINE_RE = re.compile(
 )
 
 # Temporary trouble: rate limits, maintenance pages, gateway errors, a bot
-# challenge. The URL must stay retryable and must never be filed as a dead post.
-# Checked before OFFLINE_RE, which would otherwise treat "Service Unavailable"
-# (or a 503 page) as "unavailable" and park the link forever.
+# challenge, and a kemono/pawchive post whose file the mirror has not imported
+# yet ("Incomplete/Missing file import ('pending')" - the post is alive, only
+# its file 404s until the import lands). None of these may be filed as a dead
+# post. Checked before OFFLINE_RE, which would otherwise treat "Service
+# Unavailable" (or a 503 page, or that pending-import 404) as "unavailable"
+# and park the link forever.
 RATE_RE = re.compile(
     r"(?i)(429|too many requests|rate limit|too many attempts|try again later|"
     r"slow down|\b50[0234]\b|service unavailable|temporarily unavailable|"
     r"down for maintenance|under maintenance|maintenance|bad gateway|"
     r"gateway time-?out|connection (?:reset|refused|aborted)|timed out|"
-    r"timeout|cloudflare|just a moment|checking your browser)"
+    r"timeout|cloudflare|just a moment|checking your browser|"
+    r"incomplete/missing file import)"
 )
 
 MEDIA_EXT = (

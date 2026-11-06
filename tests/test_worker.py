@@ -136,6 +136,21 @@ def test_a_maintenance_page_is_failed_not_offline(tmp_path, monkeypatch):
     assert verdict == "FAILED"
 
 
+def test_a_pending_file_import_is_failed_not_offline(tmp_path, monkeypatch):
+    """The post is alive; the mirror has not imported its file yet."""
+    text = (
+        "[pawchive][warning] 121114557: Incomplete/Missing file import ('pending')\n"
+        "[downloader.http][warning] '404 Not Found' for "
+        "'https://file.pawchive.pw/data/f1/x.jpg'\n"
+        "[download][error] Failed to download 121114557_Image.jpg"
+    )
+    verdict, _ = run(tmp_path, monkeypatch, {
+        "gdl": {"rc": 4, "text": text},
+        "yt": {"rc": 1, "text": text},
+    })
+    assert verdict == "FAILED"
+
+
 def test_a_cloudflare_challenge_is_failed_not_offline(tmp_path, monkeypatch):
     text = "[gallery-dl][error] 403 Forbidden: Just a moment..."
     verdict, _ = run(tmp_path, monkeypatch, {

@@ -1,23 +1,29 @@
 #!/usr/bin/env python3
-"""Scan the default download folder for URLs and write a TSV report.
+"""Scan the default download folder for URLs and passwords, write TSV reports.
 
 This is the standalone URL hunter, wired to dredge: the folder defaults to the
-default destination in ``config/dredge.conf``, the report lands in
-``reports/url-scan-<stamp>.tsv``, the metadata it read is sent to the recycle
-bin afterwards (its only content of interest is the URLs just extracted), and
-the report is opened at the end.
+default destination in ``config/dredge.conf``, the reports land in
+``reports/url-scan-<stamp>.tsv`` and ``reports/passwords-<stamp>.tsv``, the
+metadata it read is sent to the recycle bin afterwards (its only content of
+interest is what was just extracted), and the URL report is opened at the end.
 
 By default it reads the two sidecar kinds the downloaders leave behind:
 
     *.description        yt-dlp's video description
     <name>.<ext>.json    pawchive/kemono metadata (photo.jpg.json)
 
-A plain ``something.json`` is not a downloader sidecar and is left alone, and a
-sidecar is read for its ``content`` field only: the ``attachments`` / ``file``
-URLs in it point at the files already on disk.
+A plain ``something.json`` (or mod data such as ``Shu.upgrades.json``) is not a
+downloader sidecar and is left alone. A sidecar is read for its ``content``
+field only: the ``attachments`` / ``file`` URLs in it point at the files
+already on disk.
 
-Output columns:
-    1. url   -- the URL that was found
+Besides URLs it collects the passwords posts hand out (``pass is xyz``,
+``password: xy``, ``password is the usual``, ``解压密码：777``, ``密码是abc``,
+``パスワード：テスト``, ``비밀번호: 1234``) in English, Spanish, Japanese,
+Chinese and Korean.
+
+Output columns (one file each):
+    1. value -- the URL or password that was found
     2. path  -- absolute path of the file that contained it
 
 Examples:
@@ -25,6 +31,7 @@ Examples:
     py tools\\url_scan.py -e .json         # every .json, sidecar or not
     py tools\\url_scan.py -e '*'           # every file
     py tools\\url_scan.py --keep-metadata  # do not recycle what was scanned
+    py tools\\url_scan.py --no-passwords   # URLs only
     py tools\\url_scan.py --no-open -q     # headless run
 """
 
@@ -51,6 +58,16 @@ ROOT = Path(__file__).resolve().parent.parent
 # pawchive/kemono write next to every file.
 DEFAULT_EXTENSIONS = (".description", ".json")
 
+# The extension in front of ".json" has to be a real file kind: mod data named
+# "Shu.upgrades.json" is not a downloader sidecar and must not be recycled.
+SIDECAR_EXTENSIONS = frozenset({
+    ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".avif", ".tif", ".tiff",
+    ".mp4", ".webm", ".mkv", ".mov", ".avi", ".m4v", ".wmv", ".ts", ".vob",
+    ".mp3", ".m4a", ".flac", ".wav", ".ogg", ".opus",
+    ".zip", ".rar", ".7z", ".tar", ".gz", ".z01", ".psd", ".clip", ".pdf",
+    ".txt", ".epub", ".apk",
+})
+
 # --------------------------------------------------------------------------
 # URL detection
 # --------------------------------------------------------------------------
@@ -65,6 +82,44 @@ URL_RE = re.compile(f"(?:{_SCHEME_URL})|(?:{_MAILTO_URL})", re.IGNORECASE)
 # Punctuation that is far more likely to be sentence/markdown noise than
 # part of the URL itself.
 _TRAILING_JUNK = ".,;:!?'\"\u201d\u2019\u00bb)]}>*"
+
+# --------------------------------------------------------------------------
+# Password detection
+# --------------------------------------------------------------------------
+
+# The words a post uses to hand over an archive password, in the five languages
+# these creators write in. Bare "pass"/"code"/"clave"/"暗号" are included on
+# purpose: the report is read by a human, so a false positive is cheaper than a
+# missed password. Longest first so "password" wins over "pass".
+_PASSWORD_HINTS = "|".join(sorted({
+    # English
+    "password", "passwd", "passcode", "pass", "pwd", "pw", "code", "secret",
+    # Spanish
+    "contraseña", "contrasena", "clave",
+    # Japanese
+    "パスワード", "解凍パスワード", "解凍パス", "パス", "合言葉", "暗証番号",
+    # Chinese
+    "解压密码", "解壓密碼", "压缩密码", "解压码", "解壓碼", "提取码", "密码", "密碼",
+    # Korean
+    "비밀번호", "패스워드", "비번", "암호",
+}, key=len, reverse=True))
+
+# After the hint: an optional "is/es/是/=/:…" and then the value, which runs to
+# the end of the sentence so a phrase like "the usual" stays whole. The hint,
+# the link word and the colon stay on one line: a label with nothing after it
+# (an empty line) must not swallow the next paragraph.
+# Short hints that are ordinary words on their own ("pass by", "code of
+# conduct"): they only count when a separator follows ("pass is", "pass:",
+# "pw="). The explicit ones may be followed by the value directly.
+_BARE_HINTS = {"pass", "pwd", "pw", "code", "secret", "パス", "暗号"}
+
+PASSWORD_RE = re.compile(
+    r"(?P<hint>" + _PASSWORD_HINTS + r")(?![A-Za-z])[ \t]*"
+    r"(?:(?P<link>is|are|was|were|es|son|está|esta|是|为|為)|(?P<eq>=|＝))?[ \t]*"
+    r"(?P<colon>[:：])?[ \t]*"
+    r"(?P<value>[^\s<>{}\[\]()\"'|;:：、。\n][^<>{}\[\]()\"'|;、。\n]{0,60})",
+    re.IGNORECASE,
+)
 
 
 def _clean_url(url: str) -> str:
@@ -115,6 +170,53 @@ def extract_urls(text: str) -> list[str]:
     return urls
 
 
+# Values that describe the password instead of being one ("password protected
+# archive", "password is required"). "the usual" is deliberately not here.
+_PASSWORD_STOPWORDS = {
+    "protected", "required", "needed", "incorrect", "wrong", "unknown", "private",
+}
+
+# "...del archivo: abc123" / "...del zip es 4321": the value is after the last
+# separator. A colon with no space after it (https://…) is left alone.
+_PASSWORD_SPLIT = re.compile(r"(?:[:：]|\b(?:es|is|son|are)\b)\s+")
+
+
+def extract_passwords(text: str) -> list[str]:
+    """Passwords hinted at in ``text``, in order of first appearance.
+
+    ``pass is xyz``, ``password: xy``, ``password is xyz``, ``pass is the
+    usual``, ``解压密码：777``, ``密码是abc``, ``パスワード：テスト``,
+    ``비밀번호: 1234`` all yield the value after the hint, phrase included.
+    """
+    seen: set[str] = set()
+    found: list[str] = []
+    for match in PASSWORD_RE.finditer(text):
+        hint = match.group("hint").lower()
+        separator = bool(
+            match.group("link") or match.group("eq") or match.group("colon")
+        )
+        if hint in _BARE_HINTS and not separator:
+            continue
+        value = match.group("value")
+        # "clave del archivo: abc123" / "contraseña del zip es 4321": the value
+        # follows the last separator, the words before it name the archive
+        parts = _PASSWORD_SPLIT.split(value)
+        if len(parts) > 1 and parts[-1].strip():
+            value = parts[-1]
+        # "777. Enjoy!" - the sentence ends at the full stop
+        value = re.split(r"(?<=[.!?。！？])\s+", value, maxsplit=1)[0]
+        value = value.strip().strip("*`").strip().strip(".,;:!?。").strip()
+        if not value:
+            continue
+        if value.split()[0].lower().strip(".,;:") in _PASSWORD_STOPWORDS:
+            continue
+        if value in seen:
+            continue
+        seen.add(value)
+        found.append(value)
+    return found
+
+
 # --------------------------------------------------------------------------
 # File discovery / reading
 # --------------------------------------------------------------------------
@@ -134,8 +236,11 @@ def normalise_extensions(values: list[str]) -> set[str] | None:
 
 
 def is_sidecar(path: Path) -> bool:
-    """``photo.jpg.json`` is a downloader sidecar; ``something.json`` is not."""
-    return path.suffix.lower() == ".json" and len(path.suffixes) >= 2
+    """``photo.jpg.json`` is a metadata sidecar; ``Shu.upgrades.json`` is data."""
+    suffixes = path.suffixes
+    if len(suffixes) < 2 or suffixes[-1].lower() != ".json":
+        return False
+    return suffixes[-2].lower() in SIDECAR_EXTENSIONS
 
 
 def json_content(text: str) -> str | None:
@@ -218,6 +323,18 @@ def read_file(
 def sanitise_field(value: str) -> str:
     """Keep each TSV row on one line and in exactly two columns."""
     return value.replace("\t", "%09").replace("\r", "").replace("\n", "")
+
+
+def write_tsv(path: Path, rows: list[tuple[str, str]]) -> None:
+    """``value<TAB>path`` per row, with every field kept to one line."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(
+            handle, delimiter="\t", lineterminator="\n",
+            quoting=csv.QUOTE_MINIMAL,
+        )
+        for value, full_path in rows:
+            writer.writerow([sanitise_field(value), sanitise_field(full_path)])
 
 
 # --------------------------------------------------------------------------
@@ -407,6 +524,11 @@ def build_parser() -> argparse.ArgumentParser:
              "to the recycle bin)",
     )
     parser.add_argument(
+        "--no-passwords", action="store_true",
+        help="do not look for password hints (default: also write "
+             "passwords-<stamp>.tsv)",
+    )
+    parser.add_argument(
         "--no-open", action="store_true",
         help="do not open the report when the scan finishes",
     )
@@ -434,9 +556,11 @@ def main(argv: list[str] | None = None) -> int:
         output = Path(args.output).expanduser()
         if not output.is_absolute():
             output = (root / output).resolve()
+        stamp = time.strftime("%Y%m%d-%H%M%S")
     else:
         stamp = time.strftime("%Y%m%d-%H%M%S")
         output = root / "reports" / f"url-scan-{stamp}.tsv"
+    passwords_output = output.parent / f"passwords-{stamp}.tsv"
 
     if args.ext is None:
         exts: set[str] | None = set(DEFAULT_EXTENSIONS)
@@ -450,12 +574,14 @@ def main(argv: list[str] | None = None) -> int:
 
     rows: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
+    password_rows: list[tuple[str, str]] = []
+    seen_passwords: set[tuple[str, str]] = set()
     scanned: list[Path] = []
     skipped_large = 0
     skipped_binary = 0
 
     for path in files:
-        if path == output:
+        if path in (output, passwords_output):
             continue
         text = read_file(path, args.encoding, args.max_size, args.include_binary)
         if text is None:
@@ -488,17 +614,21 @@ def main(argv: list[str] | None = None) -> int:
                 seen.add(key)
             rows.append(key)
 
+        if not args.no_passwords:
+            for value in extract_passwords(text):
+                key = (value, full_path)
+                if key in seen_passwords:
+                    continue
+                seen_passwords.add(key)
+                password_rows.append(key)
+
     if not args.no_sort:
         rows.sort(key=lambda row: (row[1].lower(), row[0]))
+        password_rows.sort(key=lambda row: (row[1].lower(), row[0]))
 
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with output.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.writer(
-            handle, delimiter="\t", lineterminator="\n",
-            quoting=csv.QUOTE_MINIMAL,
-        )
-        for url, full_path in rows:
-            writer.writerow([sanitise_field(url), sanitise_field(full_path)])
+    write_tsv(output, rows)
+    if not args.no_passwords:
+        write_tsv(passwords_output, password_rows)
 
     trashed = 0
     leftovers: list[str] = []
@@ -515,6 +645,11 @@ def main(argv: list[str] | None = None) -> int:
             f"URL(s) in {len({r[1] for r in rows})} file(s)"
         )
         print(f"report: {output}")
+        if not args.no_passwords:
+            print(
+                f"passwords: {len(password_rows)} in "
+                f"{len({r[1] for r in password_rows})} file(s) -> {passwords_output}"
+            )
         if trashed:
             print(f"moved {trashed} metadata file(s) to the recycle bin")
         if leftovers:
@@ -529,6 +664,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.no_open:
         open_report(output)
+        if not args.no_passwords and password_rows:
+            open_report(passwords_output)
     return 0
 
 

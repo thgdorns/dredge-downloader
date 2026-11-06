@@ -20,6 +20,7 @@ def test_a_sidecar_json_is_recognised(tmp_path):
     assert module.is_sidecar(tmp_path / "photo.jpg.json")
     assert module.is_sidecar(tmp_path / "clip.mp4.json")
     assert not module.is_sidecar(tmp_path / "metadata.json")
+    assert not module.is_sidecar(tmp_path / "Shu.upgrades.json")
     assert not module.is_sidecar(tmp_path / "clip.mp4")
 
 
@@ -82,3 +83,54 @@ def test_the_scan_ignores_attachment_urls(tmp_path):
     assert "https://example.com/post" in text
     assert "cdn.example.com" not in text
     assert "/x/a.jpg" not in text
+
+
+def test_a_password_hint_yields_its_value():
+    module = load()
+
+    assert module.extract_passwords("pass is xyz") == ["xyz"]
+    assert module.extract_passwords("password: xy") == ["xy"]
+    assert module.extract_passwords("password is xyz") == ["xyz"]
+    assert module.extract_passwords("pass is the usual") == ["the usual"]
+
+
+def test_password_hints_in_five_languages():
+    module = load()
+
+    assert module.extract_passwords("Contraseña: hola") == ["hola"]
+    assert module.extract_passwords("パスワード：テスト") == ["テスト"]
+    assert module.extract_passwords("解压密码：777") == ["777"]
+    assert module.extract_passwords("密码是abc") == ["abc"]
+    assert module.extract_passwords("비밀번호: 1234") == ["1234"]
+
+
+def test_ordinary_words_are_not_passwords():
+    module = load()
+
+    assert module.extract_passwords("time sure does pass by quick") == []
+    assert module.extract_passwords("they passed away") == []
+    assert module.extract_passwords("password protected archive") == []
+    assert module.extract_passwords("解压密码：\n视频动画和作者：Japs 8005") == []
+
+
+def test_the_scan_writes_a_password_report(tmp_path):
+    module = load()
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    (downloads / "a.jpg.json").write_text(json.dumps({
+        "content": "<p>Password: hunter2</p><p>https://example.com/post</p>",
+        "attachments": [{"path": "/x/a.jpg", "name": "a.jpg"}],
+    }), encoding="utf-8")
+
+    code = module.main([
+        "--root", str(tmp_path), str(downloads),
+        "--keep-metadata", "--no-open", "-q",
+    ])
+
+    assert code == 0
+    reports = tmp_path / "reports"
+    urls = next(reports.glob("url-scan-*.tsv")).read_text(encoding="utf-8")
+    passwords = next(reports.glob("passwords-*.tsv")).read_text(encoding="utf-8")
+    assert "https://example.com/post" in urls
+    assert "hunter2" in passwords
+    assert "example.com" not in passwords

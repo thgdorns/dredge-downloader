@@ -50,6 +50,22 @@ class Plan:
         return "skipped: " + ", ".join(parts) + "." if parts else ""
 
 
+def split_line(line: str) -> tuple[str, str]:
+    """``(url, destination)`` from one queue/clipboard line.
+
+    A line is ``URL`` or ``URL<TAB>destination``. The destination is either an
+    absolute folder (the files go there) or a plain name (a folder with that
+    name is created inside the destination root).
+    """
+    url, _, spec = line.partition("\t")
+    return url.strip(), spec.strip()
+
+
+def with_spec(url: str, spec: str) -> str:
+    """The queue line for ``url``, keeping ``spec`` when there is one."""
+    return f"{url}\t{spec}" if spec else url
+
+
 def build_plan(
     urls: list[str],
     *,
@@ -69,7 +85,7 @@ def build_plan(
     plan = Plan()
     unique: set[str] = set()
     for raw in urls:
-        url = raw.strip()
+        url, spec = split_line(raw)
         if not url or url.startswith("#"):
             continue
         if not _HTTP.match(url) or _UNUSABLE.search(url):
@@ -103,7 +119,7 @@ def build_plan(
             plan.duplicates += 1
             continue
         unique.update(keys)
-        plan.urls.append(url)
+        plan.urls.append(with_spec(url, spec))
     return plan
 
 
@@ -120,12 +136,13 @@ def order_by_destination(
     """
     primary: list[str] = []
     secondary: list[str] = []
-    for url in urls:
+    for line in urls:
+        url, _ = split_line(line)
         target = destination_for(url, knowledge, settings)
         if target.name == settings.default_dest:
-            primary.append(url)
+            primary.append(line)
         else:
-            secondary.append(url)
+            secondary.append(line)
     return primary + secondary, len(primary), len(secondary)
 
 

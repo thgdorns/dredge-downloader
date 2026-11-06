@@ -6,7 +6,7 @@ import pytest
 
 from dredge import destinations
 from dredge.config import Destination, Paths, Settings
-from dredge.destinations import destination_for, filehost_folder
+from dredge.destinations import destination_for, destination_override, filehost_folder
 from dredge.sites import MirrorTable, SiteRule, parse_rule
 from dredge.urls import Knowledge
 
@@ -90,6 +90,24 @@ def test_path_traversal_in_a_folder_name_is_neutralised():
     url = "https://www.mediafire.com/folder/abcd1234/..%2F..%2Fetc"
     name = filehost_folder(url, knowledge(), FILEHOSTS)
     assert Path(name).name == name
+
+
+def test_a_plain_name_becomes_a_folder_under_the_destination(tmp_path):
+    assert destination_override("Some Author", tmp_path) == tmp_path / "Some Author"
+    assert destination_override("  Some Author  ", tmp_path) == tmp_path / "Some Author"
+    assert destination_override("a/b", tmp_path) == tmp_path / "a_b"
+
+
+def test_an_absolute_path_is_used_as_it_is(tmp_path):
+    target = tmp_path / "Elsewhere"
+    assert destination_override(str(target), tmp_path) == target
+
+
+def test_an_empty_or_dot_destination_is_none(tmp_path):
+    assert destination_override("", tmp_path) is None
+    assert destination_override("   ", tmp_path) is None
+    assert destination_override(".", tmp_path) is None
+    assert destination_override("..", tmp_path) is None
 
 
 def fallback_settings(tmp_path, **overrides):

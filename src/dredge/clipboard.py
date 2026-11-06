@@ -26,14 +26,25 @@ _TRAILING = ").,;!?'\""
 
 
 def extract_urls(text: str) -> list[str]:
-    """All distinct URLs in a clipboard text, in order."""
+    """All distinct URLs in a clipboard text, in order.
+
+    A URL may be followed by a tab and a destination (``URL<TAB>folder or
+    absolute path``); that suffix is kept, because it tells dredge where the
+    files go. Any other text after the URL is ignored.
+    """
     out: list[str] = []
     seen: set[str] = set()
-    for match in URL_RE.finditer(text or ""):
-        url = match.group(0).rstrip(_TRAILING)
-        if url and url not in seen:
-            seen.add(url)
-            out.append(url)
+    for line in (text or "").splitlines():
+        for match in URL_RE.finditer(line):
+            url = match.group(0).rstrip(_TRAILING)
+            if not url:
+                continue
+            rest = line[match.end():]
+            spec = rest[1:].strip() if rest.startswith("\t") else ""
+            item = f"{url}\t{spec}" if spec else url
+            if item not in seen:
+                seen.add(item)
+                out.append(item)
     return out
 
 

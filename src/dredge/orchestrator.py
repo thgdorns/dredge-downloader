@@ -17,10 +17,16 @@ from pathlib import Path
 from . import paint, records, state
 from .archive import append_pending, merge_pending
 from .config import Paths, Runtime, Settings
-from .destinations import apply_fallback, destination_for, free_gb, load_domains
+from .destinations import (
+    apply_fallback,
+    destination_for,
+    destination_override,
+    free_gb,
+    load_domains,
+)
 from .engines import Engines, lane_status, lane_status_tail
 from .lanes import LaneBoard
-from .plan import build_plan, order_by_destination, read_queue
+from .plan import build_plan, order_by_destination, read_queue, split_line
 from .urls import Knowledge, host
 from .worker import Worker
 
@@ -40,6 +46,7 @@ class Lane:
     result: Path
     archive: Path
     index: int = 0          # 1-based position in the queue, for the terminal
+    line: str = ""          # the queue line: the URL plus any tab destination
 
 
 @dataclass
@@ -194,7 +201,7 @@ def run_pass(
     full_dests: set[str] = set()
     progress_at = time.monotonic()
     progress_last: dict[int, tuple[str, bool]] = {}
-    queued_canon = {key for u in ordered for key in knowledge.keys(u)}
+    queued_canon = {key for u in ordered for key in knowledge.keys(split_line(u)[0])}
 
     board = _make_board(out)
     if board:
@@ -205,20 +212,26 @@ def run_pass(
                 index = _take_next(pending, ordered, active, knowledge)
                 if index < 0:
                     break
-                url = ordered[index]
+                line = ordered[index]
+                url, spec = split_line(line)
                 target = destination_for(url, knowledge, settings)
+                override = destination_override(spec, target.path) if spec else None
+                dest_root = override or target.path
+                # An explicit destination wins over the site's folder layout:
+                # files land in exactly that folder, nothing added underneath.
+                exact = override is not None
                 if not settings.dry_run:
-                    if target.name in full_dests:
+                    if str(dest_root).lower() in full_dests:
                         continue        # leave it in queue.txt; this pass skips it
-                    last = space_checked.get(target.name, 0.0)
+                    last = space_checked.get(str(dest_root).lower(), 0.0)
                     if (time.monotonic() - last) >= 120:
-                        space_checked[target.name] = time.monotonic()
-                        free = free_gb(target.path)
+                        space_checked[str(dest_root).lower()] = time.monotonic()
+                        free = free_gb(dest_root)
                         if 0 <= free < SPACE_STOP_GB:
-                            full_dests.add(target.name)
+                            full_dests.add(str(dest_root).lower())
                             message = (
                                 f"[{stamp()}] Stopping: only {free:.0f} GB free on "
-                                f"{target.path.anchor} ({target.name}) - its links stay queued."
+                                f"{dest_root.anchor} ({target.name}) - its links stay queued."
                             )
                             out(paint.yellow(message))
                             _log_line(stats.log, message)
@@ -250,11 +263,14 @@ def run_pass(
                 )
                 thread = threading.Thread(
                     target=_run_worker,
-                    args=(worker, url, target.path, target.layout == "flat", target.tpl,
+                    args=(worker, url, dest_root, target.layout == "flat" or exact,
+                          "" if exact else target.tpl,
                           not runtime.archive_check, lane_log, lane_result, lane_archive, slot),
+                    kwargs={"exact": exact, "spec": spec},
                     daemon=True,
                 )
-                active[slot] = Lane(slot, url, thread, lane_result, lane_archive, index + 1)
+                active[slot] = Lane(slot, url, thread, lane_result, lane_archive,
+                                    index + 1, line)
                 thread.start()
                 if board:
                     board.set_url(slot, index + 1, len(ordered), url)
@@ -355,8 +371,8 @@ def run_pass(
                             if merged_now.total:
                                 out(paint.darkgray(f"[{stamp()}] archive: {merged_now.total} row(s) merged."))
 
-                if lane.url in remaining:
-                    remaining.remove(lane.url)
+                if (lane.line or lane.url) in remaining:
+                    remaining.remove(lane.line or lane.url)
                 if not settings.dry_run:
                     records.write_lines(paths.queue, remaining)
 
@@ -446,11 +462,15 @@ def _run_worker(
     result: Path,
     archive: Path,
     slot: int,
+    *,
+    exact: bool = False,
+    spec: str = "",
 ) -> None:
     try:
         worker.download(
             url, dest=dest, flat=flat, dest_tpl=dest_tpl, ignore_records=ignore,
             lane_log=lane_log, result=result, archive=archive, slot=slot,
+            exact=exact, queue_spec=spec,
         )
     except Exception as exc:  # noqa: BLE001 - one URL must never kill the pass
         try:
@@ -587,7 +607,7 @@ def _catch_up_queue(
         fresh: list[str] = []
         seen: set[str] = set()
         for url in read_queue(paths.staged_queue):
-            keys = knowledge.keys(url)
+            keys = knowledge.keys(split_line(url)[0])
             if not keys or any(key in queued_canon or key in seen for key in keys):
                 continue
             seen.update(keys)
@@ -600,7 +620,7 @@ def _catch_up_queue(
             pass
     added: list[str] = []
     for url in records.read_lines(paths.queue):
-        keys = knowledge.keys(url)
+        keys = knowledge.keys(split_line(url)[0])
         if not keys or any(key in queued_canon for key in keys):
             continue
         queued_canon.update(keys)
@@ -625,7 +645,8 @@ def _capture(
     def reject(reason: str) -> None:
         rejected[reason] = rejected.get(reason, 0) + 1
 
-    for url in urls:
+    for line in urls:
+        url, _ = split_line(line)
         if not url.lower().startswith(("http://", "https://")):
             reject("not a URL")
             continue
@@ -659,7 +680,7 @@ def _capture(
             reject("failed before")
             continue
         queued.update(keys)
-        added.append(url)
+        added.append(line)
     return added, rejected
 
 
@@ -680,7 +701,7 @@ def _take_next(
         if _serial(lane.url, knowledge)
     }
     for pos, index in enumerate(pending):
-        if host(urls[index]) in busy:
+        if host(split_line(urls[index])[0]) in busy:
             continue
         pending.pop(pos)
         return index

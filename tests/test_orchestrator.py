@@ -106,7 +106,7 @@ class FakeWorker:
         pass
 
     def download(self, url, *, dest, flat, dest_tpl, ignore_records, lane_log,
-                 result, archive, slot):
+                 result, archive, slot, **kwargs):
         Path(lane_log).write_text(f"[test] {url}\r\n", encoding="utf-8")
         if "bad" in url:
             Path(result).write_text("FAILED", encoding="utf-8")
@@ -428,4 +428,57 @@ def test_without_a_target_the_lane_links_its_destination(tmp_path):
     paths.lane_dest(1).write_text(str(root), encoding="utf-8")
 
     assert orchestrator._lane_folder_uri(paths, 1) == paint_module.file_uri(root)
+
+
+def test_a_queued_name_goes_into_that_subfolder(tmp_path, monkeypatch):
+    paths = Paths(tmp_path)
+    paths.ensure()
+    settings = Settings.load(
+        paths, dest_default=tmp_path / "dest", max_downloads=1,
+        no_capture=True, progress_every_seconds=0,
+    )
+    records.write_lines(paths.queue, ["https://example.com/good\tSome Author"])
+    seen: list[tuple[str, Path, bool]] = []
+
+    class RecordingWorker(FakeWorker):
+        def download(self, url, **kwargs):
+            seen.append((url, Path(kwargs["dest"]), kwargs.get("exact")))
+            return super().download(url, **kwargs)
+
+    monkeypatch.setattr(orchestrator, "Worker", RecordingWorker)
+    runtime = Runtime(paths, settings)
+    run_pass(
+        runtime, Knowledge({}, SiteRule(host="*"), MirrorTable()),
+        orchestrator.Engines(), out=lambda message: None,
+    )
+
+    assert seen == [
+        ("https://example.com/good", tmp_path / "dest" / "Some Author", True)
+    ]
+
+
+def test_a_queued_path_is_used_exactly(tmp_path, monkeypatch):
+    paths = Paths(tmp_path)
+    paths.ensure()
+    settings = Settings.load(
+        paths, dest_default=tmp_path / "dest", max_downloads=1,
+        no_capture=True, progress_every_seconds=0,
+    )
+    elsewhere = tmp_path / "elsewhere"
+    records.write_lines(paths.queue, [f"https://example.com/good\t{elsewhere}"])
+    seen: list[tuple[Path, bool]] = []
+
+    class RecordingWorker(FakeWorker):
+        def download(self, url, **kwargs):
+            seen.append((Path(kwargs["dest"]), kwargs.get("exact")))
+            return super().download(url, **kwargs)
+
+    monkeypatch.setattr(orchestrator, "Worker", RecordingWorker)
+    runtime = Runtime(paths, settings)
+    run_pass(
+        runtime, Knowledge({}, SiteRule(host="*"), MirrorTable()),
+        orchestrator.Engines(), out=lambda message: None,
+    )
+
+    assert seen == [(elsewhere, True)]
 

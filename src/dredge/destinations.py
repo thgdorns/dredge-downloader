@@ -107,6 +107,25 @@ def _clean(name: str) -> str:
     return _UNSAFE.sub("_", name).strip().rstrip(".")
 
 
+def destination_override(spec: str, base: Path) -> Path | None:
+    """The folder named by a queue line's tab suffix, or ``None``.
+
+    An absolute path is used as-is (that is where the files go). Anything else
+    is a folder name created inside ``base``, with the characters Windows
+    refuses replaced.
+    """
+    text = spec.strip().strip("\"'").strip()
+    if not text:
+        return None
+    candidate = Path(text).expanduser()
+    if candidate.is_absolute():
+        return candidate
+    name = _clean(text)
+    if not name or name in (".", ".."):
+        return None
+    return base / name
+
+
 def free_gb(path: str | Path) -> float:
     """Free GB on the drive holding ``path``; ``-1`` when it is not mounted."""
     p = Path(path)

@@ -266,8 +266,11 @@ def retry_skipped(runtime: Runtime, knowledge: Knowledge) -> None:
     if not skipped:
         _say("skip.txt has nothing to retry.", "darkgray")
         return
-    queued = set(records.read_lines(paths.queue))
-    add = [url for url in skipped if url not in queued]
+    queued = records.keyed_set(records.read_lines(paths.queue), knowledge)
+    add = [
+        url for url in skipped
+        if not any(key in queued for key in knowledge.keys(url))
+    ]
     try:
         # queue first, skip.txt second: if the queue cannot be written nothing is lost
         if add:
@@ -292,8 +295,11 @@ def retry_failed(runtime: Runtime, knowledge: Knowledge) -> None:
     if not failed:
         _say("fail.txt has nothing to retry.", "darkgray")
         return
-    queued = set(records.read_lines(paths.queue))
-    add = [url for url in failed if url not in queued]
+    queued = records.keyed_set(records.read_lines(paths.queue), knowledge)
+    add = [
+        url for url in failed
+        if not any(key in queued for key in knowledge.keys(url))
+    ]
     try:
         # queue first, fail.txt second: if the queue cannot be written nothing is lost
         if add:

@@ -63,11 +63,16 @@ def keyed_set(lines: Iterable[str], knowledge: Knowledge) -> set[str]:
         text = line.strip().lstrip("\ufeff").strip()
         if not text or text.startswith("#"):
             continue
-        keys.add(text)
-        c = knowledge.canon(text)
+        # a queue line may carry a destination after a tab; it is not part of
+        # what the item is
+        url = text.partition("\t")[0].strip()
+        if not url:
+            continue
+        keys.add(url)
+        c = knowledge.canon(url)
         if not c:
             continue
-        keys.update(knowledge.keys(text))
+        keys.update(knowledge.keys(url))
         ident = knowledge.seen_id(c)
         if ident:
             keys.add(ident)

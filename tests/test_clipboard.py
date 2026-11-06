@@ -13,6 +13,21 @@ def test_ignores_non_urls():
     assert extract_urls("no links here") == []
 
 
+def test_a_tab_after_the_url_keeps_the_destination():
+    assert extract_urls("https://example.com/a\tSome Author") == [
+        "https://example.com/a\tSome Author"
+    ]
+    assert extract_urls("https://example.com/a\tG:\\Downloads\\Author") == [
+        "https://example.com/a\tG:\\Downloads\\Author"
+    ]
+
+
+def test_text_after_the_url_without_a_tab_is_ignored():
+    assert extract_urls("https://example.com/a and some words") == [
+        "https://example.com/a"
+    ]
+
+
 def test_capture_appends_polled_urls_to_the_inbox(tmp_path, monkeypatch):
     class FakeWatcher:
         def __init__(self, interval: float = 0.25) -> None:

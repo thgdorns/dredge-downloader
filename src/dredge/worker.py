@@ -205,6 +205,8 @@ class Worker:
         result: str | Path | None = None,
         archive: str | Path | None = None,
         slot: int = 0,
+        exact: bool = False,
+        queue_spec: str = "",
     ) -> str:
         self._buffer = []
         self._url = url
@@ -269,7 +271,7 @@ class Worker:
         if dl_rule and dl_rule.list and not dry and self.engines.yt:
             path = _url_path(dl)
             if path and re.search(dl_rule.list, path):
-                verdict = self._expand_flat(dl)
+                verdict = self._expand_flat(dl, queue_spec)
                 if verdict:
                     return self._finish(verdict, result)
 
@@ -326,7 +328,11 @@ class Worker:
             engine = self._filehost_engine(dl, final_dest, dl_rule, files_manifest)
 
         # --- tiers 2-3: yt-dlp ------------------------------------------
-        if rule and rule.tpl:
+        if exact:
+            # an explicit destination from the queue line: files go there and
+            # nowhere else, so the site's own folder layout is not applied
+            tpl = self.settings.tpl_flat
+        elif rule and rule.tpl:
             tpl = rule.tpl
         elif dest_tpl:
             tpl = dest_tpl
@@ -665,7 +671,7 @@ class Worker:
         )
         return True
 
-    def _expand_flat(self, dl: str) -> str | None:
+    def _expand_flat(self, dl: str, spec: str = "") -> str | None:
         self._lane(f"[expand] flat listing {dl}")
         _rc, out = run(
             [self.engines.yt, "--ignore-config", "--config-locations",
@@ -681,7 +687,11 @@ class Worker:
             self._lane("[expand] yt-dlp listed nothing - crawling the page instead")
             return None
         staged = self.paths.staged_queue
-        payload = "".join(item + "\r\n" for item in items)
+        # The line's destination travels with every item: a creator URL copied
+        # with a folder still means that folder for each of its posts.
+        payload = "".join(
+            (f"{item}\t{spec}" if spec else item) + "\r\n" for item in items
+        )
         for _ in range(5):
             try:
                 with staged.open("a", encoding="utf-8", newline="") as fh:

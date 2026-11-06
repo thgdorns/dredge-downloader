@@ -500,13 +500,25 @@ def _lane_files(path: Path) -> list[Path]:
     return [Path(line.strip()) for line in lines if line.strip()]
 
 
-def _read_path(path: Path) -> Path | None:
-    """A path a lane published (its destination folder or its current target)."""
+def _read_path(path: Path, tail: int = 4096) -> Path | None:
+    """The last path a lane published (its target file or its destination).
+
+    laneN.target grows one line per file in a crawl, and the last line is the
+    file being written now; only the tail is read so a 100k-line file costs
+    nothing on every refresh.
+    """
     try:
-        text = path.read_text(encoding="utf-8", errors="replace").strip()
+        with path.open("rb") as fh:
+            fh.seek(0, 2)
+            size = fh.tell()
+            fh.seek(max(0, size - tail))
+            chunk = fh.read().decode("utf-8", errors="replace")
     except OSError:
         return None
-    return Path(text) if text else None
+    lines = [line.strip() for line in chunk.splitlines() if line.strip()]
+    if not lines:
+        return None
+    return Path(lines[-1])
 
 
 def _lane_folder_uri(paths: Paths, slot: int) -> str:

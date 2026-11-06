@@ -405,6 +405,20 @@ def test_a_running_lane_links_the_folder_the_file_goes_to(tmp_path):
     assert orchestrator._lane_folder_uri(paths, 1) == paint_module.file_uri(creator)
 
 
+def test_the_last_published_target_wins(tmp_path):
+    from dredge import paint as paint_module
+
+    paths = Paths(tmp_path)
+    paths.ensure()
+    first = tmp_path / "dest" / "creator" / "a.jpg"
+    last = tmp_path / "dest" / "creator" / "b.jpg"
+    paths.lane_target(1).write_text(
+        "\n".join(str(p) for p in (first, last)) + "\n", encoding="utf-8"
+    )
+
+    assert orchestrator._lane_folder_uri(paths, 1) == paint_module.file_uri(last.parent)
+
+
 def test_without_a_target_the_lane_links_its_destination(tmp_path):
     from dredge import paint as paint_module
 

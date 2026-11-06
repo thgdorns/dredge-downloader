@@ -94,3 +94,37 @@ def test_without_uris_the_line_stays_plain():
     board.set_done(1, 2, 10, "OK|gallery-dl", "  -> clip.mp4")
 
     assert all("link" not in str(span.style) for span in board._lines[1].spans)
+
+
+def test_a_wider_terminal_shows_more_of_the_line():
+    board = LaneBoard()
+    url = "https://example.com/" + "x" * 80
+    board.set_url(1, 1, 1, url)
+
+    narrow = board.render(width=40).renderables[0].plain
+    wide = board.render(width=200).renderables[0].plain
+
+    assert narrow.endswith("…")
+    assert len(wide) > len(narrow)
+    assert url in wide
+
+
+def test_the_set_line_keeps_the_full_text():
+    board = LaneBoard()
+    url = "https://example.com/" + "x" * 80
+    board.set_url(1, 1, 1, url)
+
+    assert url in board._lines[1].plain     # cut at render time, not here
+
+
+def test_the_lane_label_is_white_on_teal():
+    from rich.style import Style
+
+    board = LaneBoard()
+    board.set_url(1, 1, 1, "https://example.com/x")
+    style = board._lines[1].spans[0].style
+    parsed = Style.parse(style) if isinstance(style, str) else style
+
+    assert parsed.color is not None
+    assert parsed.bgcolor is not None
+    assert parsed.bgcolor.get_truecolor() == (0, 128, 128)

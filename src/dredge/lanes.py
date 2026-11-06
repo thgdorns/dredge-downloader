@@ -22,7 +22,12 @@ from rich.text import Text
 
 
 def _idle(slot: int) -> Text:
-    return Text(f"lane {slot}: idle", style="dim")
+    return Text.assemble((f"lane {slot}: ", LABEL_STYLE), ("idle", "dim"))
+
+
+# The lane label sits on a teal block, white text, so it reads as the row's
+# handle - the part that opens the folder.
+LABEL_STYLE = "white on #008080"
 
 
 def _is_url(text: str) -> bool:
@@ -70,8 +75,15 @@ class LaneBoard:
             self._live.stop()
             self._running = False
 
-    def render(self) -> Group:
-        return Group(*(self._lines[slot] for slot in sorted(self._lines)))
+    def render(self, width: int | None = None) -> Group:
+        """The block, cut to the console width *now* (so a resize shows more)."""
+        limit = max(20, (width or self.console.width) - 1)
+        rows: list[Text] = []
+        for slot in sorted(self._lines):
+            text = self._lines[slot].copy()
+            text.truncate(limit, overflow="ellipsis")
+            rows.append(text)
+        return Group(*rows)
 
     def refresh(self) -> None:
         if self._running:
@@ -98,19 +110,19 @@ class LaneBoard:
         self, slot: int, index: int, total: int, url: str, folder: str = "",
     ) -> None:
         self._done_at.pop(slot, None)
-        self._lines[slot] = self._fit(Text.assemble(
-            (f"lane {slot}: ", _linked("dim", folder)),
+        self._lines[slot] = Text.assemble(
+            (f"lane {slot}: ", _linked(LABEL_STYLE, folder)),
             (f"{index}/{total} ", "dim"),
             # the URL stays plain: the terminal's own link detection opens it
             (url, "cyan"),
-        ))
+        )
 
     def set_progress(
         self, slot: int, index: int, total: int, name: str, pct: str, speed: str,
         folder: str = "",
     ) -> None:
         parts: list[tuple[str, str]] = [
-            (f"lane {slot}: ", _linked("dim", folder)),
+            (f"lane {slot}: ", _linked(LABEL_STYLE, folder)),
             (f"{index}/{total} ", "dim"),
             (name, "" if _is_url(name) else _linked("", folder)),
         ]
@@ -118,7 +130,7 @@ class LaneBoard:
             parts.append((f"  {pct}", "yellow"))
         if speed:
             parts.append((f"  {speed}", "green"))
-        self._lines[slot] = self._fit(Text.assemble(*parts))
+        self._lines[slot] = Text.assemble(*parts)
 
     def set_done(
         self, slot: int, index: int, total: int, verdict: str, files: str,
@@ -132,14 +144,10 @@ class LaneBoard:
         else:
             style = "red"
         parts: list[tuple[str, str]] = [
-            (f"lane {slot}: ", _linked("dim", folder)),
+            (f"lane {slot}: ", _linked(LABEL_STYLE, folder)),
             (f"{index}/{total} ", "dim"),
             (verdict, style),
         ]
         if files:
             parts.append((files, _linked(style, target or folder)))
-        self._lines[slot] = self._fit(Text.assemble(*parts))
-
-    def _fit(self, text: Text) -> Text:
-        text.truncate(max(20, self.console.width - 1), overflow="ellipsis")
-        return text
+        self._lines[slot] = Text.assemble(*parts)

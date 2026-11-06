@@ -288,10 +288,18 @@ class Worker:
             pass
         blocked = False
 
-        prefer_yt = bool(dl_rule and dl_rule.engine in ("yt-dlp", "ytdlp"))
+        # engine= in sites.txt names one engine for the host and nothing else:
+        # a failed download is retried on a later run instead of being handed to
+        # a chain of engines that can only repeat the same answer (an iwara CDN
+        # timeout became yt-dlp -> yt-dlp-native -> yt-dlp-generic -> gallery-dl
+        # for every file). Only hosts with no pin cascade.
+        pinned = (dl_rule.engine if dl_rule else "") or ""
+        pin_yt = pinned in ("yt-dlp", "ytdlp")
+        pin_gdl = pinned in ("gdl", "gallery-dl")
+        pin_filehost = bool(pinned) and not pin_yt and not pin_gdl
 
         # --- tier 1: gallery-dl -----------------------------------------
-        if self.engines.gdl and not prefer_yt:
+        if self.engines.gdl and (not pinned or pin_gdl):
             gallery = self._gallery_tier(
                 url, dl, final_dest, flat, folder, dl_rule, playlist,
                 files_manifest, sim, ignore, archive, sig0, dry,
@@ -301,10 +309,7 @@ class Worker:
             gdl_handled = gallery.handled
 
         # --- tier 1f: file-host engines ---------------------------------
-        if (
-            not engine and not dry and dl_rule and dl_rule.engine
-            and dl_rule.engine not in ("gdl", "yt-dlp", "ytdlp")
-        ):
+        if not engine and not dry and pin_filehost:
             engine = self._filehost_engine(dl, final_dest, dl_rule, files_manifest)
 
         # --- tiers 2-3: yt-dlp ------------------------------------------
@@ -335,7 +340,9 @@ class Worker:
         ]
         yt_log = ""
 
-        if not engine and not gdl_handled and self.engines.yt:
+        if not engine and not gdl_handled and self.engines.yt and (
+            not pinned or pin_yt
+        ):
             self._lane(f"[yt-dlp] {url}")
             yt_args: list[str] = []
             if dl_rule and dl_rule.native:
@@ -359,6 +366,7 @@ class Worker:
 
         if (
             not engine and not blocked and not gdl_handled and not dry and yt_log
+            and not pinned
             and not re.search(r"Unsupported URL|is not a valid URL", yt_log)
             and self.engines.yt
         ):
@@ -379,7 +387,7 @@ class Worker:
                     blocked = True
 
         generic_allowed = True
-        if self.strict and not gdl_handled:
+        if self.strict and not gdl_handled and not pinned:
             from .urls import host as url_host
 
             h = url_host(url)
@@ -392,7 +400,10 @@ class Worker:
                     "skipped (add the host there to allow it)"
                 )
 
-        if not engine and not blocked and not gdl_handled and generic_allowed and self.engines.yt:
+        if (
+            not engine and not blocked and not gdl_handled and generic_allowed
+            and self.engines.yt and not pinned
+        ):
             self._lane(f"[yt-dlp-generic] {url}")
             rc, _ = run(
                 [self.engines.yt, "--ignore-config", "--config-locations",
@@ -417,14 +428,6 @@ class Worker:
                 "[yt-dlp] no media file on disk after a successful exit - counting as failed "
                 "(a page asset or an image is not a download)"
             )
-
-        if not engine and prefer_yt and self.engines.gdl:
-            gallery = self._gallery_tier(
-                url, dl, final_dest, flat, folder, dl_rule, playlist,
-                files_manifest, sim, ignore, archive, dir_signature(final_dest), dry,
-            )
-            engine = gallery.engine
-            page_ids = gallery.page_ids
 
         if engine:
             verdict = f"OK|{engine}"

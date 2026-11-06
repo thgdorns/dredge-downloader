@@ -552,7 +552,14 @@ def test_refresh_forces_yt_dlp_to_overwrite(tmp_path, monkeypatch):
     assert any("--force-overwrites" in call for call in yt_calls)
 
 
-def test_engine_yt_dlp_falls_back_to_gallery_dl(tmp_path, monkeypatch):
+def test_engine_yt_dlp_never_falls_through(tmp_path, monkeypatch):
+    """engine= names one engine: a failure is FAILED, not a walk down the chain.
+
+    Without the pin the same failure retries as yt-dlp-native, then the
+    all-extractor pass, then gallery-dl - three attempts that can only repeat
+    the answer, which is what made every iwara file look like it "used" four
+    engines.
+    """
     rule = parse_rule("example.com engine=yt-dlp")
     paths = Paths(tmp_path)
     settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
@@ -560,18 +567,7 @@ def test_engine_yt_dlp_falls_back_to_gallery_dl(tmp_path, monkeypatch):
 
     def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
         calls.append(list(args))
-        if "gallery-dl" in Path(str(args[0])).stem:
-            dest = Path(args[args.index("-d") + 1]) if "-d" in args else Path(args[args.index("-D") + 1])
-            clip = dest / "clip.mp4"
-            dest.mkdir(parents=True, exist_ok=True)
-            clip.write_bytes(b"x" * 200_000)
-            for index, arg in enumerate(args):
-                if arg == "--Print-to-file" and index + 2 < len(args):
-                    manifest = Path(args[index + 2])
-                    manifest.parent.mkdir(parents=True, exist_ok=True)
-                    manifest.write_text(str(clip), encoding="utf-8")
-            return 0, ""
-        return 1, "ERROR: Unsupported URL"
+        return 1, "ERROR: aria2c exited with code 1"
 
     monkeypatch.setattr(worker_module, "run", fake)
     worker = Worker(
@@ -585,6 +581,84 @@ def test_engine_yt_dlp_falls_back_to_gallery_dl(tmp_path, monkeypatch):
         archive=tmp_path / "lane1.archive",
     )
 
-    assert verdict == "OK|gallery-dl"
-    assert any("gallery-dl" in Path(str(call[0])).stem for call in calls)
+    assert verdict == "FAILED"
+    assert len(calls) == 1
+    assert not any("gallery-dl" in Path(str(call[0])).stem for call in calls)
+
+
+def test_engine_gdl_never_falls_through(tmp_path, monkeypatch):
+    rule = parse_rule("example.com engine=gdl")
+    paths = Paths(tmp_path)
+    settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
+    calls: list[list[str]] = []
+
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+        calls.append(list(args))
+        if "gallery-dl" in Path(str(args[0])).stem:
+            return 1, "ERROR: Unsupported URL"
+        dest = Path(args[args.index("-P") + 1])
+        dest.mkdir(parents=True, exist_ok=True)
+        (dest / "clip.mp4").write_bytes(b"x" * 200_000)
+        return 0, ""
+
+    monkeypatch.setattr(worker_module, "run", fake)
+    worker = Worker(
+        paths, settings, Engines(yt="yt-dlp", gdl="gallery-dl"), knowledge(rule)
+    )
+    verdict = worker.download(
+        "https://example.com/post/1",
+        dest=tmp_path / "dest",
+        lane_log=tmp_path / "lane1.log",
+        result=tmp_path / "lane1.result",
+        archive=tmp_path / "lane1.archive",
+    )
+
+    assert verdict == "FAILED"
+    assert len(calls) == 1
+    assert "gallery-dl" in Path(str(calls[0][0])).stem
+
+
+def test_engine_megadl_never_falls_through(tmp_path, monkeypatch):
+    rule = parse_rule("mega.nz engine=megadl")
+    paths = Paths(tmp_path)
+    settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
+    calls: list[list[str]] = []
+
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+        calls.append(list(args))
+        if "megatools" in str(args[0]):
+            return 1, "ERROR: 509 bandwidth limit exceeded"
+        dest = Path(args[args.index("-P") + 1])
+        dest.mkdir(parents=True, exist_ok=True)
+        (dest / "clip.mp4").write_bytes(b"x" * 200_000)
+        return 0, ""
+
+    monkeypatch.setattr(worker_module, "run", fake)
+    worker = Worker(
+        paths,
+        settings,
+        Engines(yt="yt-dlp", gdl="gallery-dl", megadl="megatools"),
+        knowledge(rule),
+    )
+    verdict = worker.download(
+        "https://mega.nz/file/abc#key",
+        dest=tmp_path / "dest",
+        lane_log=tmp_path / "lane1.log",
+        result=tmp_path / "lane1.result",
+        archive=tmp_path / "lane1.archive",
+    )
+
+    assert verdict == "FAILED"
+    assert len(calls) == 1
+    assert "megatools" in str(calls[0][0])
+
+
+def test_unpinned_host_still_walks_the_chain(tmp_path, monkeypatch):
+    """No engine= in sites.txt means the cascade is still the default."""
+    verdict, _root = run(tmp_path, monkeypatch, {
+        "gdl": {"rc": 1, "text": "ERROR: Unsupported URL"},
+        "yt": {"rc": 0, "file": "clip.mp4"},
+    })
+
+    assert verdict == "OK|yt-dlp"
 

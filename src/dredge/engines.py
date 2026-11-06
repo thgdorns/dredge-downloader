@@ -69,6 +69,7 @@ class Engines:
     gdl: str | None = None
     megadl: str | None = None
     mdrs: str | None = None
+    gdown: str | None = None
 
     @classmethod
     def discover(cls, settings: Settings) -> Engines:
@@ -81,10 +82,17 @@ class Engines:
                 settings.megatools, "megatools.exe" if sys.platform == "win32" else "megatools"
             ),
             mdrs=resolve_tool(settings.mediafire, "mdrs.exe" if sys.platform == "win32" else "mdrs"),
+            gdown=resolve_engine(
+                "gdown.exe" if sys.platform == "win32" else "gdown", settings.gdown
+            ),
         )
 
     def for_rule(self, engine: str) -> str | None:
-        return {"megadl": self.megadl, "mdrs": self.mdrs}.get(engine)
+        return {
+            "megadl": self.megadl,
+            "mdrs": self.mdrs,
+            "gdown": self.gdown,
+        }.get(engine)
 
 
 def run(

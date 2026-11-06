@@ -12,6 +12,7 @@ for the next pass), ``FAILED``, ``OFFLINE``.
 
 from __future__ import annotations
 
+import os
 import re
 import tempfile
 import threading
@@ -719,6 +720,12 @@ class Worker:
         if name == "megadl":
             args = [exe, "dl", "--path", str(dest), "--no-ask-password",
                     "--ignore-config-file", dl]
+        elif name == "gdown":
+            # -c resumes a partial file and skips a finished one; --retries
+            # covers the transient 403s Drive answers under load.
+            args = [exe, "-c", "--retries", "3", "-O", self._gdown_output(dl, dest)]
+            args += self._gdown_cookies()
+            args.append(dl)
         else:
             args = [exe, "-o", str(dest), "-m", "4", "-t", "2", dl]
         rc, out = run(args, cwd=self.paths.root, sink=self._sink, stop_on=_QUOTA_STOP)
@@ -742,7 +749,36 @@ class Worker:
                 self._lane(f"[{name}] partial data kept - the next run resumes it")
             if re.search(r"(?i)over ?quota|transfer quota|quota exceeded", out):
                 self._lane(f"[{name}] MEGA transfer quota for this IP is spent - retry on a later run")
+            if re.search(
+                r"(?i)too many users have viewed|download quota|quota exceeded"
+                r"|cannot retrieve the public link|many accesses",
+                out,
+            ):
+                self._lane(
+                    f"[{name}] Drive refused it: the link is not public any more, "
+                    "or the access limit for this file is spent - retry later"
+                )
         return None
+
+    def _gdown_output(self, url: str, dest: Path) -> str:
+        """Where gdown writes: a folder link gets a folder named after its id."""
+        match = re.search(r"/folders/([A-Za-z0-9_-]+)", url)
+        if match:
+            return str(dest / match.group(1))
+        return str(dest) + os.sep      # trailing separator: keep the file's name
+
+    def _gdown_cookies(self) -> list[str]:
+        """A throwaway copy of config/cookies.txt; gdown rewrites the file it reads."""
+        source = self.paths.cookies
+        if not source.exists():
+            return ["--no-cookies"]
+        target = Path(tempfile.gettempdir()) / f"dredge-gdown-{uuid.uuid4().hex}.txt"
+        try:
+            target.write_bytes(source.read_bytes())
+        except OSError:
+            return ["--no-cookies"]
+        self._temps.append(target)
+        return ["--cookies", str(target)]
 
     def _write_rows(
         self,

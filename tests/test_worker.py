@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import dredge.worker as worker_module
@@ -724,4 +725,127 @@ def test_an_expanded_listing_keeps_the_queued_destination(tmp_path, monkeypatch)
         "https://example.com/post/1\tSome Author",
         "https://example.com/post/2\tSome Author",
     ]
+
+
+def test_the_gdown_engine_downloads_into_the_destination(tmp_path, monkeypatch):
+    rule = parse_rule("drive.google.com engine=gdown")
+    paths = Paths(tmp_path)
+    settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
+    calls: list[list[str]] = []
+
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+        calls.append(list(args))
+        target = Path(args[args.index("-O") + 1].rstrip("\\/"))
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "clip.mp4").write_bytes(b"x" * 200_000)
+        return 0, ""
+
+    monkeypatch.setattr(worker_module, "run", fake)
+    worker = Worker(paths, settings, Engines(gdown="gdown"), knowledge(rule))
+    verdict = worker.download(
+        "https://drive.google.com/file/d/17fkE2_NsaPmF10FZfbUxXdWzrPiLeMAv/view",
+        dest=tmp_path / "dest",
+        lane_log=tmp_path / "lane1.log",
+        result=tmp_path / "lane1.result",
+        archive=tmp_path / "lane1.archive",
+    )
+
+    assert verdict == "OK|gdown"
+    argv = calls[0]
+    assert argv[0] == "gdown"
+    assert argv[1:3] == ["-c", "--retries"]
+    assert argv[argv.index("-O") + 1].endswith(os.sep)
+    assert (tmp_path / "dest" / "clip.mp4").is_file()
+
+
+def test_a_drive_folder_link_gets_a_folder_named_by_its_id(tmp_path, monkeypatch):
+    rule = parse_rule("drive.google.com engine=gdown")
+    paths = Paths(tmp_path)
+    settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
+    calls: list[list[str]] = []
+
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+        calls.append(list(args))
+        target = Path(args[args.index("-O") + 1])
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "clip.mp4").write_bytes(b"x" * 200_000)
+        return 0, ""
+
+    monkeypatch.setattr(worker_module, "run", fake)
+    worker = Worker(paths, settings, Engines(gdown="gdown"), knowledge(rule))
+    verdict = worker.download(
+        "https://drive.google.com/drive/folders/15uNXeRBIhVvZJIhL4yTw4IsStMhUaaxl",
+        dest=tmp_path / "dest",
+        lane_log=tmp_path / "lane1.log",
+        result=tmp_path / "lane1.result",
+        archive=tmp_path / "lane1.archive",
+    )
+
+    assert verdict == "OK|gdown"
+    assert calls[0][calls[0].index("-O") + 1] == str(
+        tmp_path / "dest" / "15uNXeRBIhVvZJIhL4yTw4IsStMhUaaxl"
+    )
+    assert (tmp_path / "dest" / "15uNXeRBIhVvZJIhL4yTw4IsStMhUaaxl" / "clip.mp4").is_file()
+
+
+def test_gdown_uses_a_throwaway_copy_of_the_cookies(tmp_path, monkeypatch):
+    rule = parse_rule("drive.google.com engine=gdown")
+    paths = Paths(tmp_path)
+    paths.ensure()
+    settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
+    paths.cookies.parent.mkdir(parents=True, exist_ok=True)
+    paths.cookies.write_text("# Netscape HTTP Cookie File\n", encoding="utf-8")
+    calls: list[list[str]] = []
+    contents: list[str] = []
+
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+        calls.append(list(args))
+        cookie = Path(args[args.index("--cookies") + 1])
+        contents.append(cookie.read_text(encoding="utf-8"))
+        target = Path(args[args.index("-O") + 1].rstrip("\\/"))
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "clip.mp4").write_bytes(b"x" * 200_000)
+        return 0, ""
+
+    monkeypatch.setattr(worker_module, "run", fake)
+    worker = Worker(paths, settings, Engines(gdown="gdown"), knowledge(rule))
+    worker.download(
+        "https://drive.google.com/file/d/abc/view",
+        dest=tmp_path / "dest",
+        lane_log=tmp_path / "lane1.log",
+        result=tmp_path / "lane1.result",
+        archive=tmp_path / "lane1.archive",
+    )
+
+    argv = calls[0]
+    cookie_file = Path(argv[argv.index("--cookies") + 1])
+    assert cookie_file != paths.cookies
+    assert contents[0].startswith("# Netscape")
+    assert not cookie_file.exists()   # the worker removed its copy
+
+
+def test_gdown_without_a_cookie_file_asks_for_none(tmp_path, monkeypatch):
+    rule = parse_rule("drive.google.com engine=gdown")
+    paths = Paths(tmp_path)
+    settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
+    calls: list[list[str]] = []
+
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+        calls.append(list(args))
+        target = Path(args[args.index("-O") + 1].rstrip("\\/"))
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "clip.mp4").write_bytes(b"x" * 200_000)
+        return 0, ""
+
+    monkeypatch.setattr(worker_module, "run", fake)
+    worker = Worker(paths, settings, Engines(gdown="gdown"), knowledge(rule))
+    worker.download(
+        "https://drive.google.com/file/d/abc/view",
+        dest=tmp_path / "dest",
+        lane_log=tmp_path / "lane1.log",
+        result=tmp_path / "lane1.result",
+        archive=tmp_path / "lane1.archive",
+    )
+
+    assert "--no-cookies" in calls[0]
 

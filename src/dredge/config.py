@@ -268,6 +268,7 @@ class Settings:
     gdl: str = ""
     megatools: str = "D:\\Warez\\megatools"
     mediafire: str = "D:\\Warez\\mediafire_rs"
+    gdown: str = ""
     cookies_browser: str = "floorp"
 
     # switches
@@ -352,7 +353,8 @@ def _read_conf(path: Path) -> tuple[dict[str, object], dict[str, dict[str, str]]
         "destination_default": str, "dest_fallback": str,
         "dest_fallback_below_gb": int, "tpl_default": str, "tpl_flat": str,
         "tpl_generic": str, "gdl_dir": str, "max_downloads": int, "yt": str,
-        "gdl": str, "megatools": str, "mediafire": str, "cookies_browser": str,
+        "gdl": str, "megatools": str, "mediafire": str, "gdown": str,
+        "cookies_browser": str,
         "idle_seconds": int, "progress_every_seconds": int,
         "fold_batch_rows": int, "fold_batch_seconds": int,
     }

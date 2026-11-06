@@ -136,9 +136,11 @@ copy config\gallery-dl.conf.example config\gallery-dl.conf
 | `--refresh URL` | re-check one post against gallery-dl's position archive (repeatable) |
 | `--root DIR` | folder holding `config/`, `data/`, `logs/` (default: cwd) |
 
-Press **M** while it runs to open the menu. Inside: records check on/off, retry
-failed, retry skipped, skip failed, probe files, lane count, pause/resume,
-strict mode, and shortcuts to the record files. **Esc** goes back.
+Press **M** while it runs to open the menu. **P** pauses or resumes downloads
+without opening it; a pause stops new lanes, lets the active files finish, and
+keeps draining copied links into `queue.txt`. Inside the menu: records check
+on/off, retry failed, retry skipped, skip failed, probe files, lane count,
+pause/resume, strict mode, and shortcuts to the record files. **Esc** goes back.
 
 The lane count chosen in the menu (item 6) is written back to
 `config/dredge.conf` (`max_downloads = N`), so the next start uses it;

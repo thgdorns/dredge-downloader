@@ -600,3 +600,31 @@ def test_run_loop_drains_the_clipboard_while_paused(tmp_path, monkeypatch):
 
     assert records.read_lines(paths.queue) == ["https://example.com/a"]
 
+
+def test_a_pause_mid_pass_stops_new_lanes(tmp_path, monkeypatch):
+    paths = Paths(tmp_path)
+    paths.ensure()
+    settings = Settings.load(
+        paths, dest_default=tmp_path / "dest", max_downloads=1,
+        no_capture=True, progress_every_seconds=0,
+    )
+    records.write_lines(paths.queue, [
+        "https://example.com/one",
+        "https://example.com/two",
+    ])
+
+    class PausingWorker(FakeWorker):
+        def download(self, url, **kwargs):
+            paths.paused.touch()
+            return super().download(url, **kwargs)
+
+    monkeypatch.setattr(orchestrator, "Worker", PausingWorker)
+    stats = run_pass(
+        Runtime(paths, settings), Knowledge({}, SiteRule(host="*"), MirrorTable()),
+        orchestrator.Engines(), out=lambda message: None,
+    )
+
+    assert stats is not None
+    assert stats.ok_total == 1
+    assert records.read_lines(paths.queue) == ["https://example.com/two"]
+

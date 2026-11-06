@@ -222,7 +222,11 @@ def run_pass(
         board.start()
     try:
         while pending or active:
+            if paths.paused.exists() and not active:
+                break           # leave the rest in queue.txt
             while len(active) < runtime.max_downloads and pending:
+                if paths.paused.exists():
+                    break       # let running lanes finish, start nothing new
                 index = _take_next(pending, ordered, active, knowledge)
                 if index < 0:
                     break
@@ -749,7 +753,7 @@ def _sleep(
     seconds: float, runtime: Runtime, knowledge: Knowledge, board: LaneBoard | None = None
 ) -> None:
     from . import menu
-    from .tui import show_dredge_menu
+    from .tui import show_dredge_menu, toggle_paused
 
     def open_menu() -> None:
         if board:
@@ -760,4 +764,22 @@ def _sleep(
             if board:
                 board.start()
 
-    menu.wait(seconds, open_menu)
+    def toggle() -> None:
+        if board:
+            board.stop()
+        try:
+            try:
+                paused, message = toggle_paused(runtime, knowledge)
+            except OSError as exc:
+                say(
+                    paint.red(f"[{time.strftime('%H:%M:%S')}] pause failed: {exc}"),
+                    runtime.paths,
+                )
+                return
+            color = paint.yellow if paused else paint.green
+            say(color(f"[{time.strftime('%H:%M:%S')}] {message}"), runtime.paths)
+        finally:
+            if board:
+                board.start()
+
+    menu.wait(seconds, open_menu, on_pause=toggle)

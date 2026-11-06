@@ -73,7 +73,7 @@ def select(title: str, items: Sequence[MenuItem], close: str = "close") -> str |
 
 
 def menu_key() -> str | None:
-    """A key pressed since the last call, without blocking (Windows console)."""
+    """A menu/pause key pressed since the last call, without blocking (Windows)."""
     if sys.platform != "win32":
         return None
     try:
@@ -84,21 +84,30 @@ def menu_key() -> str | None:
     try:
         while msvcrt.kbhit():
             ch = msvcrt.getwch()
-            if ch in ("m", "M"):
-                key = ch
+            low = ch.lower()
+            if low in ("m", "p"):
+                key = low
     except OSError:
         return None
     return key
 
 
-def wait(seconds: float, on_menu: Callable[[], None] | None = None) -> None:
-    """Sleep that stays responsive to the ``M`` menu key."""
+def wait(
+    seconds: float,
+    on_menu: Callable[[], None] | None = None,
+    on_pause: Callable[[], None] | None = None,
+) -> None:
+    """Sleep that stays responsive to the ``M`` menu and ``P`` pause keys."""
     import time
 
     end = time.monotonic() + seconds
     while True:
-        if on_menu and menu_key():
-            on_menu()
+        if on_menu or on_pause:
+            key = menu_key()
+            if key == "m" and on_menu:
+                on_menu()
+            elif key == "p" and on_pause:
+                on_pause()
         left = end - time.monotonic()
         if left <= 0:
             return

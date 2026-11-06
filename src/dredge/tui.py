@@ -23,6 +23,29 @@ def _say(message: str, color: str = "") -> None:
     print(f"    {paint.paint(message, color)}")
 
 
+def toggle_paused(runtime: Runtime, knowledge: Knowledge) -> tuple[bool, str]:
+    """Pause or resume downloads; returns ``(now_paused, message)``.
+
+    The flag is ``data/state/paused``. Pausing does not kill a running lane -
+    it stops new lanes from starting, so the queue waits and active files can
+    finish. Resuming rebuilds the failed set, which may have changed while the
+    queue was held.
+    """
+    pause = runtime.paths.paused
+    if pause.exists():
+        try:
+            pause.unlink()
+        except OSError:
+            pass
+        state.update_failed_set(runtime, knowledge)
+        runtime.pause_shown = False
+        return False, "downloads resumed - queue.txt is live again."
+    pause.parent.mkdir(parents=True, exist_ok=True)
+    pause.touch()
+    runtime.pause_shown = True
+    return True, "downloads paused - queue.txt waits; press P to resume."
+
+
 def show_checks_menu(
     runtime: Runtime,
     knowledge: Knowledge,
@@ -54,7 +77,7 @@ def show_checks_menu(
             ),
             menu.MenuItem(
                 "7", f"downloads       [{'PAUSED' if paused else 'running'}]  "
-                     "pause/resume (queue.txt waits)"
+                     "pause/resume (P)"
             ),
             menu.MenuItem(
                 "8", f"strict mode     [{'ON' if runtime.strict_generic else 'OFF'}]  "
@@ -100,18 +123,8 @@ def show_checks_menu(
                 else:
                     _say("lanes must be a number from 1 to 16.", "yellow")
         elif choice == "7":
-            pause = runtime.paths.paused
-            if pause.exists():
-                try:
-                    pause.unlink()
-                except OSError:
-                    pass
-                state.update_failed_set(runtime, knowledge)
-                _say("downloads resumed - queue.txt is live again.", "green")
-            else:
-                pause.parent.mkdir(parents=True, exist_ok=True)
-                pause.touch()
-                _say("downloads paused - queue.txt waits until you resume.", "yellow")
+            paused, message = toggle_paused(runtime, knowledge)
+            _say(message, "yellow" if paused else "green")
         elif choice == "8":
             runtime.strict_generic = not runtime.strict_generic
             if runtime.strict_generic:

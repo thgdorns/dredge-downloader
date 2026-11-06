@@ -105,6 +105,32 @@ def test_strict_mode_option_toggles(tmp_path, monkeypatch):
     assert runtime.strict_generic is True
 
 
+def test_toggle_paused_flips_the_flag_and_reports_it(tmp_path):
+    paths, runtime, knowledge = setup(tmp_path)
+
+    paused, message = tui.toggle_paused(runtime, knowledge)
+
+    assert paused is True
+    assert paths.paused.exists()
+    assert "paused" in message
+
+    paused, message = tui.toggle_paused(runtime, knowledge)
+
+    assert paused is False
+    assert not paths.paused.exists()
+    assert "resumed" in message
+
+
+def test_pause_option_toggles_the_flag(tmp_path, monkeypatch):
+    paths, runtime, knowledge = setup(tmp_path)
+    answers = iter(["7", "7", None])
+    monkeypatch.setattr(tui.menu, "select", lambda *a, **k: next(answers, None))
+
+    tui.show_checks_menu(runtime, knowledge)
+
+    assert not paths.paused.exists()
+
+
 def test_lane_count_option_asks_for_a_number(tmp_path, monkeypatch):
     paths, runtime, knowledge = setup(tmp_path)
     answers = iter(["6", "7"])

@@ -26,7 +26,7 @@ from .lock import AlreadyRunning, InstanceLock
 from .orchestrator import drain_clipboard, run_pass
 from .plan import split_line
 from .probe import run_mode
-from .tui import show_dredge_menu
+from .tui import show_dredge_menu, toggle_paused
 from .urls import Knowledge
 from .worker import Worker
 
@@ -465,8 +465,17 @@ def run_loop(runtime: Runtime, knowledge: Knowledge, engines: Engines) -> int:
         finally:
             opened.clear()
 
+    def toggle() -> None:
+        try:
+            paused, message = toggle_paused(runtime, knowledge)
+        except OSError as exc:
+            print(paint.red(f"[{_clock()}] pause failed: {exc}"))
+            return
+        color = paint.yellow if paused else paint.green
+        print(color(f"[{_clock()}] {message}"))
+
     def pause(seconds: float) -> None:
-        menu.wait(seconds, open_menu)
+        menu.wait(seconds, open_menu, on_pause=toggle)
 
     if not settings.dry_run:
         state.update_archive_sets(runtime, knowledge)
@@ -479,7 +488,7 @@ def run_loop(runtime: Runtime, knowledge: Knowledge, engines: Engines) -> int:
             if not runtime.pause_shown:
                 print(paint.yellow(
                     f"[{_clock()}] downloads are paused - queue.txt is waiting for review "
-                    "(menu 1 -> 7 resumes)."
+                    "(P or menu 1 -> 7 resumes)."
                 ))
                 runtime.pause_shown = True
             captured = drain_clipboard(paths, settings)

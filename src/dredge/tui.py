@@ -193,7 +193,7 @@ def show_dredge_menu(
             "1", "checks    records check, retry failed/skipped, skip failed, probe files, lanes, pause"
         ),
         menu.MenuItem("2", "files     downloads.tsv, queue.txt, fail.txt, offline.txt, skip.txt, run log"),
-        menu.MenuItem("3", "tools     url scan (JSON -> reports/), record report (fail/offline HTML)"),
+        menu.MenuItem("3", "tools     url scan (JSON -> reports/), record report (fail/skip/offline/downloads HTML)"),
     ]
     while True:
         choice = menu.select("dredge menu", items)
@@ -218,7 +218,7 @@ def show_tools_menu(runtime: Runtime) -> None:
             "reports/url-scan-*.tsv (the JSON is deleted; mega/mediafire/"
             "drive links go to queue.txt)",
         ),
-        menu.MenuItem("2", "record report  fail.html and offline.html in reports/"),
+        menu.MenuItem("2", "record report  fail/skip/offline/downloads HTML in reports/ (opens them)"),
     ]
     while True:
         choice = menu.select("tools", items, close="back")
@@ -250,7 +250,7 @@ def run_url_scan(runtime: Runtime) -> None:
 
 def run_record_report(runtime: Runtime) -> None:
     try:
-        written = write_reports(runtime.paths.root)
+        written = write_reports(runtime.paths.root, open_pages=True)
     except OSError as exc:
         _say(f"could not write the reports: {exc}", "red")
         return

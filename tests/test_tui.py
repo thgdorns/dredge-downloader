@@ -207,17 +207,18 @@ def test_tools_menu_writes_the_record_report(tmp_path, monkeypatch):
     paths = Paths(tmp_path)
     paths.ensure()
     runtime = Runtime(paths, Settings.load(paths))
-    seen: list[Path] = []
+    seen: list[tuple[Path, dict]] = []
     written = {"fail": paths.root / "reports" / "fail.html"}
     answers = iter(["2", None])
     monkeypatch.setattr(tui.menu, "select", lambda *a, **k: next(answers, None))
     monkeypatch.setattr(
-        tui, "write_reports", lambda root: seen.append(root) or written
+        tui, "write_reports",
+        lambda root, **kw: (seen.append((root, kw)) or written),
     )
 
     tui.show_tools_menu(runtime)
 
-    assert seen == [paths.root]
+    assert seen == [(paths.root, {"open_pages": True})]
 
 
 def test_the_main_menu_opens_the_tools_submenu(tmp_path, monkeypatch):

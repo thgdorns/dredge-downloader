@@ -62,6 +62,12 @@ engines see it).
 - **gallery-dl only** (`engine=gdl`). yt-dlp's Iwara extractor matches
   `iwara.tv`/`ecchi.iwara.tv` only and answers `Unsupported URL` for this host -
   checked against yt-dlp 2026.11.04 and against master's `_VALID_URL`.
+- **Folder names use the display name, not the handle.** gallery-dl exposes
+  `user.name` as the handle (`user2938287`) and `user.nick` as the display name
+  (`abc的二分`, `テーヘン`). The `iwara.directory` template in
+  `config/gallery-dl.conf` is `{user[nick]|user[name]|username}`, so new
+  downloads land under the display name; `ratzy` happens to have both the same.
+  Checked 2026-11-06; existing handle-named folders were left in place.
 - **It is not a mirror of iwara.tv**: the same video id on iwara.tv makes the API
   answer `errors.differentSite`. A rewrite in `mirrors.txt` would break every
   link.

@@ -9,6 +9,9 @@
     "archive": "data/state/gallery-dl.sqlite3",
     "retries": 4,
     "timeout": 30,
-    "directory": ["{uploader|uploader_name|channel|artist|creator|username|user[name]|author[name]|account[username]|category}"]
+    "directory": ["{uploader|uploader_name|channel|artist|creator|username|user[name]|author[name]|account[username]|category}"],
+    "iwara": {
+      "directory": ["{user[nick]|user[name]|username}"]
+    }
   }
 }

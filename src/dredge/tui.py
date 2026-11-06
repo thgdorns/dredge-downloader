@@ -118,6 +118,20 @@ def show_checks_menu(
                 _say("strict mode OFF - the generic tier may handle any host.")
 
 
+def latest_run_log(logs: Path) -> Path | None:
+    """Newest ``run-*.log`` in the logs folder, or ``None`` when there is none."""
+    latest = None
+    newest = -1.0
+    for path in logs.glob("run-*.log"):
+        try:
+            stamp = path.stat().st_mtime
+        except OSError:
+            continue
+        if stamp > newest:
+            latest, newest = path, stamp
+    return latest
+
+
 def show_files_menu(runtime: Runtime) -> None:
     paths = runtime.paths
     files = [
@@ -126,6 +140,7 @@ def show_files_menu(runtime: Runtime) -> None:
         menu.MenuItem("3", "fail.txt        tried, did not work"),
         menu.MenuItem("4", "offline.txt     the post is gone"),
         menu.MenuItem("5", "skip.txt        never download these again"),
+        menu.MenuItem("6", "run log         the current/latest run"),
     ]
     mapping = {
         "1": paths.archive, "2": paths.queue, "3": paths.fail,
@@ -135,6 +150,13 @@ def show_files_menu(runtime: Runtime) -> None:
         choice = menu.select("files", files, close="back")
         if choice is None:
             return
+        if choice == "6":
+            log = latest_run_log(paths.logs)
+            if log is None:
+                _say("no run log yet.", "darkgray")
+            else:
+                open_record(log)
+            continue
         target = mapping.get(choice)
         if target:
             open_record(target)
@@ -167,7 +189,7 @@ def show_dredge_menu(
         menu.MenuItem(
             "1", "checks    records check, retry failed/skipped, skip failed, probe files, lanes, pause"
         ),
-        menu.MenuItem("2", "files     downloads.tsv, queue.txt, fail.txt, offline.txt, skip.txt"),
+        menu.MenuItem("2", "files     downloads.tsv, queue.txt, fail.txt, offline.txt, skip.txt, run log"),
     ]
     while True:
         choice = menu.select("dredge menu", items)

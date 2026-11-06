@@ -1,3 +1,6 @@
+import os
+from pathlib import Path
+
 from dredge import records, state, tui
 from dredge.config import Paths, Runtime, Settings
 from dredge.sites import MirrorTable, SiteRule, parse_rule
@@ -136,3 +139,45 @@ def test_retry_skipped_does_not_queue_a_line_twice(tmp_path):
     tui.retry_skipped(runtime, knowledge)
 
     assert records.read_lines(paths.queue).count("https://example.com/skip") == 1
+
+
+def test_latest_run_log_is_the_newest_file(tmp_path):
+    paths = Paths(tmp_path)
+    paths.ensure()
+    paths.logs.mkdir(parents=True, exist_ok=True)
+    old = paths.logs / "run-20260101-000000.log"
+    new = paths.logs / "run-20260102-000000.log"
+    old.write_text("old", encoding="utf-8")
+    new.write_text("new", encoding="utf-8")
+    os.utime(old, (1000, 1000))
+    os.utime(new, (2000, 2000))
+
+    assert tui.latest_run_log(paths.logs) == new
+
+
+def test_latest_run_log_is_none_without_logs(tmp_path):
+    paths = Paths(tmp_path)
+    paths.ensure()
+
+    assert tui.latest_run_log(paths.logs) is None
+
+
+def test_files_menu_opens_the_latest_run_log(tmp_path, monkeypatch):
+    paths = Paths(tmp_path)
+    paths.ensure()
+    paths.logs.mkdir(parents=True, exist_ok=True)
+    old = paths.logs / "run-20260101-000000.log"
+    new = paths.logs / "run-20260102-000000.log"
+    old.write_text("old", encoding="utf-8")
+    new.write_text("new", encoding="utf-8")
+    os.utime(old, (1000, 1000))
+    os.utime(new, (2000, 2000))
+    runtime = Runtime(paths, Settings.load(paths))
+    opened: list[Path] = []
+    answers = iter(["6", None])
+    monkeypatch.setattr(tui.menu, "select", lambda *a, **k: next(answers, None))
+    monkeypatch.setattr(tui, "open_record", opened.append)
+
+    tui.show_files_menu(runtime)
+
+    assert opened == [new]

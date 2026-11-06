@@ -3,18 +3,28 @@
 
 This is the standalone URL hunter, wired to dredge: the folder defaults to the
 default destination in ``config/dredge.conf``, the report lands in
-``reports/url-scan-<stamp>.tsv``, the ``.json`` metadata files it read are
-deleted afterwards (their only content of interest is the URLs just extracted),
-and the report is opened at the end.
+``reports/url-scan-<stamp>.tsv``, the metadata it read is sent to the recycle
+bin afterwards (its only content of interest is the URLs just extracted), and
+the report is opened at the end.
+
+By default it reads the two sidecar kinds the downloaders leave behind:
+
+    *.description        yt-dlp's video description
+    <name>.<ext>.json    pawchive/kemono metadata (photo.jpg.json)
+
+A plain ``something.json`` is not a downloader sidecar and is left alone, and a
+sidecar is read for its ``content`` field only: the ``attachments`` / ``file``
+URLs in it point at the files already on disk.
 
 Output columns:
     1. url   -- the URL that was found
     2. path  -- absolute path of the file that contained it
 
 Examples:
-    py tools\\url_scan.py                  # default destination, .json only
-    py tools\\url_scan.py -e .json .txt    # other extensions as well
-    py tools\\url_scan.py --keep-json      # do not delete what was scanned
+    py tools\\url_scan.py                  # default destination, sidecars only
+    py tools\\url_scan.py -e .json         # every .json, sidecar or not
+    py tools\\url_scan.py -e '*'           # every file
+    py tools\\url_scan.py --keep-metadata  # do not recycle what was scanned
     py tools\\url_scan.py --no-open -q     # headless run
 """
 
@@ -23,8 +33,10 @@ from __future__ import annotations
 import argparse
 import csv
 import html
+import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -34,6 +46,10 @@ from dredge.config import Paths, Settings
 from dredge.destinations import apply_fallback
 
 ROOT = Path(__file__).resolve().parent.parent
+
+# What a default scan reads: yt-dlp descriptions and the JSON sidecars
+# pawchive/kemono write next to every file.
+DEFAULT_EXTENSIONS = (".description", ".json")
 
 # --------------------------------------------------------------------------
 # URL detection
@@ -117,11 +133,34 @@ def normalise_extensions(values: list[str]) -> set[str] | None:
     return exts or None
 
 
+def is_sidecar(path: Path) -> bool:
+    """``photo.jpg.json`` is a downloader sidecar; ``something.json`` is not."""
+    return path.suffix.lower() == ".json" and len(path.suffixes) >= 2
+
+
+def json_content(text: str) -> str | None:
+    """The post body of a kemono/pawchive sidecar, or ``None`` when it has none.
+
+    Those sidecars carry the post's own text in ``content`` and every downloaded
+    file in ``attachments``/``file``; only the body can hold links the user
+    wants back, the attachments are the files themselves.
+    """
+    try:
+        data = json.loads(text)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    body = data.get("content")
+    return body if isinstance(body, str) else None
+
+
 def iter_files(
     root: Path,
     exts: set[str] | None,
     recursive: bool,
     exclude: list[str],
+    sidecar_only: bool = False,
 ) -> list[Path]:
     walker = root.rglob("*") if recursive else root.glob("*")
     files: list[Path] = []
@@ -129,6 +168,8 @@ def iter_files(
         if not path.is_file():
             continue
         if exts is not None and path.suffix.lower() not in exts:
+            continue
+        if sidecar_only and path.suffix.lower() == ".json" and not is_sidecar(path):
             continue
         if any(path.match(pattern) for pattern in exclude):
             continue
@@ -204,6 +245,89 @@ def open_report(path: Path) -> None:
 
 
 # --------------------------------------------------------------------------
+# Recycle bin
+# --------------------------------------------------------------------------
+
+def _recycle_windows(paths: list[Path]) -> tuple[int, list[str]]:
+    """SHFileOperation with FOF_ALLOWUNDO: the Recycle Bin, never a cold delete."""
+    import ctypes
+    from ctypes import wintypes
+
+    class SHFILEOPSTRUCTW(ctypes.Structure):
+        _fields_ = [
+            ("hwnd", wintypes.HWND),
+            ("wFunc", wintypes.UINT),
+            ("pFrom", wintypes.LPCWSTR),
+            ("pTo", wintypes.LPCWSTR),
+            ("fFlags", ctypes.c_uint16),          # FILEOP_FLAGS is a WORD
+            ("fAnyOperationsAborted", wintypes.BOOL),
+            ("hNameMappings", ctypes.c_void_p),
+            ("lpszProgressTitle", wintypes.LPCWSTR),
+        ]
+
+    FO_DELETE = 3
+    FOF_SILENT = 0x0004
+    FOF_NOCONFIRMATION = 0x0010
+    FOF_ALLOWUNDO = 0x0040
+    FOF_NOERRORUI = 0x0400
+    flags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI
+
+    done = 0
+    failed: list[str] = []
+    for start in range(0, len(paths), 200):
+        chunk = paths[start:start + 200]
+        listing = "\0".join(str(p) for p in chunk) + "\0\0"
+        source = ctypes.create_unicode_buffer(listing)
+        op = SHFILEOPSTRUCTW(
+            None, FO_DELETE, ctypes.cast(source, wintypes.LPCWSTR), None,
+            flags, False, None, None,
+        )
+        code = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op))
+        if code == 0 and not op.fAnyOperationsAborted:
+            done += len(chunk)
+        else:
+            failed.extend(str(p) for p in chunk)
+    return done, failed
+
+
+def _recycle_posix(paths: list[Path]) -> tuple[int, list[str]]:
+    """``gio trash`` (GNOME/KDE) or ``trash-put``; nothing when neither exists."""
+    tool = None
+    for name in ("gio", "trash-put"):
+        if shutil.which(name):
+            tool = name
+            break
+    if tool is None:
+        return 0, [str(p) for p in paths]
+
+    done = 0
+    failed: list[str] = []
+    for path in paths:
+        argv = (
+            ["gio", "trash", "--", str(path)] if tool == "gio"
+            else ["trash-put", "--", str(path)]
+        )
+        try:
+            subprocess.run(argv, check=False, capture_output=True)
+        except OSError:
+            pass
+        if path.exists():
+            failed.append(str(path))
+        else:
+            done += 1
+    return done, failed
+
+
+def recycle(paths: list[Path]) -> tuple[int, list[str]]:
+    """Send files to the desktop's recycle bin / trash. Never deletes outright."""
+    if not paths:
+        return 0, []
+    if sys.platform == "win32":
+        return _recycle_windows(paths)
+    return _recycle_posix(paths)
+
+
+# --------------------------------------------------------------------------
 # Main
 # --------------------------------------------------------------------------
 
@@ -228,10 +352,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="output TSV path (default: reports/url-scan-<stamp>.tsv)",
     )
     parser.add_argument(
-        "-e", "--ext", "--extensions", nargs="+", default=[".json"],
+        "-e", "--ext", "--extensions", nargs="+", default=None,
         dest="ext",
-        help="file extensions to scan, e.g. -e .json .txt (default: .json; "
-             "use '*' for every file)",
+        help="file extensions to scan (default: .description plus the "
+             "<name>.<ext>.json sidecars pawchive/kemono write). Pass "
+             "'-e .json' to scan every .json, or '*' for every file",
     )
     parser.add_argument(
         "--no-recursive", action="store_true",
@@ -277,9 +402,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="write rows in scan order instead of sorting by path then URL",
     )
     parser.add_argument(
-        "--keep-json", action="store_true",
-        help="keep the scanned .json files (default: delete them once their "
-             "URLs are in the report)",
+        "--keep-metadata", action="store_true",
+        help="keep the scanned .json/.description files (default: send them "
+             "to the recycle bin)",
     )
     parser.add_argument(
         "--no-open", action="store_true",
@@ -313,8 +438,15 @@ def main(argv: list[str] | None = None) -> int:
         stamp = time.strftime("%Y%m%d-%H%M%S")
         output = root / "reports" / f"url-scan-{stamp}.tsv"
 
-    exts = normalise_extensions(args.ext)
-    files = iter_files(folder, exts, not args.no_recursive, args.exclude)
+    if args.ext is None:
+        exts: set[str] | None = set(DEFAULT_EXTENSIONS)
+        sidecar_only = True
+    else:
+        exts = normalise_extensions(args.ext)
+        sidecar_only = False
+    files = iter_files(
+        folder, exts, not args.no_recursive, args.exclude, sidecar_only
+    )
 
     rows: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
@@ -333,6 +465,13 @@ def main(argv: list[str] | None = None) -> int:
                 skipped_binary += 1
             continue
         scanned.append(path)
+
+        # A kemono/pawchive sidecar is read for its post body only: the
+        # attachment URLs in it point at the files already on disk.
+        if path.suffix.lower() == ".json":
+            body = json_content(text)
+            if body is not None:
+                text = body
 
         if args.json_escapes:
             text = decode_json_escapes(text)
@@ -361,16 +500,14 @@ def main(argv: list[str] | None = None) -> int:
         for url, full_path in rows:
             writer.writerow([sanitise_field(url), sanitise_field(full_path)])
 
-    deleted = 0
-    if not args.keep_json:
-        for path in scanned:
-            if path.suffix.lower() != ".json":
-                continue
-            try:
-                path.unlink()
-                deleted += 1
-            except OSError as exc:
-                print(f"warning: cannot delete {path}: {exc}", file=sys.stderr)
+    trashed = 0
+    leftovers: list[str] = []
+    if not args.keep_metadata:
+        metadata = [
+            path for path in scanned
+            if path.suffix.lower() in (".json", ".description")
+        ]
+        trashed, leftovers = recycle(metadata)
 
     if not args.quiet:
         print(
@@ -378,8 +515,13 @@ def main(argv: list[str] | None = None) -> int:
             f"URL(s) in {len({r[1] for r in rows})} file(s)"
         )
         print(f"report: {output}")
-        if deleted:
-            print(f"deleted {deleted} .json file(s)")
+        if trashed:
+            print(f"moved {trashed} metadata file(s) to the recycle bin")
+        if leftovers:
+            print(
+                f"could not recycle {len(leftovers)} file(s) - left in place",
+                file=sys.stderr,
+            )
         if skipped_binary:
             print(f"skipped {skipped_binary} binary file(s)")
         if skipped_large:

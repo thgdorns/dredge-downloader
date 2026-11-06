@@ -107,12 +107,19 @@ def _clean(name: str) -> str:
     return _UNSAFE.sub("_", name).strip().rstrip(".")
 
 
+# A queue line's destination may name a subpath ("author\post"), not just one
+# folder; every separator Windows accepts splits it.
+_PATH_SPLIT = re.compile(r"[\\/]+")
+
+
 def destination_override(spec: str, base: Path) -> Path | None:
     """The folder named by a queue line's tab suffix, or ``None``.
 
-    An absolute path is used as-is (that is where the files go). Anything else
-    is a folder name created inside ``base``, with the characters Windows
-    refuses replaced.
+    An absolute path is used as-is. Anything else is relative to ``base``:
+    ``bluethebone\\38549292`` keeps both segments, so it lands exactly where the
+    absolute form would, and a single word is one folder name. Every segment
+    gets the characters Windows refuses replaced, and ``..`` is refused so a
+    queue line cannot climb out of the destination.
     """
     text = spec.strip().strip("\"'").strip()
     if not text:
@@ -120,10 +127,13 @@ def destination_override(spec: str, base: Path) -> Path | None:
     candidate = Path(text).expanduser()
     if candidate.is_absolute():
         return candidate
-    name = _clean(text)
-    if not name or name in (".", ".."):
+    parts = [part for part in _PATH_SPLIT.split(text) if part not in ("", ".")]
+    if not parts or any(part == ".." for part in parts):
         return None
-    return base / name
+    cleaned = [name for name in (_clean(part) for part in parts) if name]
+    if not cleaned:
+        return None
+    return base.joinpath(*cleaned)
 
 
 def free_gb(path: str | Path) -> float:

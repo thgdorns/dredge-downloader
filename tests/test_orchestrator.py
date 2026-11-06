@@ -503,3 +503,32 @@ def test_a_failed_line_keeps_its_destination(tmp_path, monkeypatch):
 
     assert records.read_lines(paths.fail) == [line]
 
+
+def test_a_relative_destination_lands_where_the_absolute_one_would(
+    tmp_path, monkeypatch,
+):
+    paths = Paths(tmp_path)
+    paths.ensure()
+    settings = Settings.load(
+        paths, dest_default=tmp_path / "dest", max_downloads=1,
+        no_capture=True, progress_every_seconds=0,
+    )
+    root = tmp_path / "dest"
+    records.write_lines(paths.queue, [
+        "https://example.com/good\tbluethebone\\38549292"
+    ])
+    seen: list[Path] = []
+
+    class RecordingWorker(FakeWorker):
+        def download(self, url, **kwargs):
+            seen.append(Path(kwargs["dest"]))
+            return super().download(url, **kwargs)
+
+    monkeypatch.setattr(orchestrator, "Worker", RecordingWorker)
+    run_pass(
+        Runtime(paths, settings), Knowledge({}, SiteRule(host="*"), MirrorTable()),
+        orchestrator.Engines(), out=lambda message: None,
+    )
+
+    assert seen == [root / "bluethebone" / "38549292"]
+

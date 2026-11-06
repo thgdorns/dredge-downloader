@@ -95,7 +95,30 @@ def test_path_traversal_in_a_folder_name_is_neutralised():
 def test_a_plain_name_becomes_a_folder_under_the_destination(tmp_path):
     assert destination_override("Some Author", tmp_path) == tmp_path / "Some Author"
     assert destination_override("  Some Author  ", tmp_path) == tmp_path / "Some Author"
-    assert destination_override("a/b", tmp_path) == tmp_path / "a_b"
+
+
+def test_a_relative_subpath_keeps_its_segments(tmp_path):
+    expected = tmp_path / "bluethebone" / "38549292"
+
+    assert destination_override("bluethebone\\38549292", tmp_path) == expected
+    assert destination_override("bluethebone/38549292", tmp_path) == expected
+    assert destination_override("bluethebone\\38549292\\", tmp_path) == expected
+
+
+def test_a_relative_subpath_matches_the_absolute_form(tmp_path):
+    absolute = tmp_path / "bluethebone" / "38549292"
+
+    assert destination_override(str(absolute), tmp_path) == absolute
+    assert destination_override("bluethebone\\38549292", tmp_path) == absolute
+
+
+def test_a_segment_is_cleaned_but_the_path_is_kept(tmp_path):
+    assert destination_override("author\\a:b", tmp_path) == tmp_path / "author" / "a_b"
+
+
+def test_a_path_cannot_climb_out(tmp_path):
+    assert destination_override("..", tmp_path) is None
+    assert destination_override("author\\..\\..\\etc", tmp_path) is None
 
 
 def test_an_absolute_path_is_used_as_it_is(tmp_path):

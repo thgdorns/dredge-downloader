@@ -9,7 +9,7 @@ interest is what was just extracted), and the URL report is opened at the end.
 
 By default it reads the two sidecar kinds the downloaders leave behind:
 
-    *.description        yt-dlp's video description
+    *.description        yt-dlp's video or playlist description
     <name>.<ext>.json    pawchive/kemono metadata (photo.jpg.json)
 
 A plain ``something.json`` (or mod data such as ``Shu.upgrades.json``) is not a

@@ -115,6 +115,37 @@ engines see it).
 - JS challenges need node (or deno); without one, some formats are missing.
 - `--write-description` (`yt=`) stores the description next to the video.
 
+## Nicovideo - nicovideo.jp / nico.ms
+
+- **yt-dlp is the only engine that has it.** gallery-dl has no niconico video
+  extractor - only `seiga.nicovideo.jp` images (checked gallery-dl 1.32.19,
+  2026-11-06). The rule is pinned `engine=yt-dlp`, so gallery-dl is not tried.
+  yt-dlp covers `niconico`, `niconico:playlist`, `niconico:series`,
+  `niconico:channel`, `niconico:live` and `NiconicoUser`.
+- `/watch/<id>`, `/shorts/<id>` and `sp.nicovideo.jp` all match the extractor;
+  `nico.ms/<id>` is the shortener for the same video, hence `also=nico.ms`.
+- **Descriptions.** `--write-description` (`yt=`) writes the post text as plain
+  UTF-8 next to the video: `<uploader>/<title>.description` (checked with yt-dlp
+  2026.11.04 on `sm9`). Playlist metadata is written by default
+  (`--write-playlist-metafiles` is on), so a mylist or series also leaves its own
+  `.description` through the `pl_description` template - same extension, no
+  separate rule. `tools/url_scan.py` already reads `.description` by default, so
+  there was nothing to add there.
+- **Economy mode is gone - do not add a peak-hour block.** The time-of-day
+  quality cap for free and logged-out users was abolished on 2024-03-01 15:00
+  JST ([official notice](https://blog.nicovideo.jp/niconews/215661.html)).
+  Since then free/logged-out users get up to 720p at any hour and premium gets
+  1080p; the old windows (weekdays 18:00-26:00, weekends/holidays 12:00-26:00)
+  no longer exist. nndownload's README still says "12 PM - 2 AM JST" and is
+  stale.
+- The API still lists a `qualityLevel: 0` rendition (`video-h264-360p-lowest`,
+  labelled 低画質) beside the normal one (`qualityLevel: 1`), but it is an
+  alternate track, not the one yt-dlp picks while a normal track is available.
+  If a peak-hour mode ever returns, the tell is a chosen format id containing
+  `-lowest`; that is the point to fail the download instead of accepting it.
+- `native` is not set. Nicovideo serves HLS (m3u8) with separate video/audio, so
+  if aria2c churns on fragments the way it does on YouTube, that is the lever.
+
 ## SpankBang
 
 - The extractor reports the video id as the title (`41aiv`), so files were named

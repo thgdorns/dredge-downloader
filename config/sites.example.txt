@@ -45,3 +45,8 @@
 
 example.com            keep=all  min=0
 youtube.com            keep=all  min=0  key=v  also=youtu.be  native
+# nicovideo.jp: yt-dlp is the only engine with a niconico video extractor
+# (gallery-dl only has seiga.nicovideo.jp images). --write-description writes
+# <uploader>/<title>.description for the video, and the default
+# --write-playlist-metafiles leaves a .description for a mylist/series too.
+nicovideo.jp           keep=all  min=0  engine=yt-dlp  also=nico.ms  yt=--write-description

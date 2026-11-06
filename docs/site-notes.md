@@ -145,8 +145,18 @@ engines see it).
   alternate track, not the one yt-dlp picks while a normal track is available.
   If a peak-hour mode ever returns, the tell is a chosen format id containing
   `-lowest`; that is the point to fail the download instead of accepting it.
-- `native` is not set. Nicovideo serves HLS (m3u8) with separate video/audio, so
-  if aria2c churns on fragments the way it does on YouTube, that is the lever.
+- `native` is not set. Nicovideo serves HLS (m3u8) with separate video/audio, and
+  `ytdlp.conf` already routes `dash,m3u8` to yt-dlp's own downloader
+  (`--downloader aria2c --downloader dash,m3u8:native`). So aria2c never touches
+  nicovideo - the lane log says `[hlsnative]`, and a live process check during a
+  nicovideo batch showed only `yt-dlp.exe`, no `aria2c.exe`. The concurrency knob
+  is `-N 4` (HLS fragments) from the same config.
+- **`serial` keeps one nicovideo download at a time.** Without it, four lanes
+  each run `-N 4`, so up to 16 fragment connections hit the CDN at once;
+  nndownload explicitly warns that multiple download sessions on one connection
+  get temporary blocks or throttling. Serial drops the ceiling to the four
+  fragments of the single active video. If that ever proves too much, a
+  per-host `yt=-N,2` is the next step; aria2c is not involved either way.
 
 ## SpankBang
 

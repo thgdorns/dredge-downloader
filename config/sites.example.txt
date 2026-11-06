@@ -50,4 +50,7 @@ youtube.com            keep=all  min=0  key=v  also=youtu.be  native
 # <uploader>/<title>.description for the video, and the default
 # --write-playlist-metafiles leaves a .description for a mylist/series too.
 # id= makes nico.ms/<id> the same download as nicovideo.jp/watch/<id>.
-nicovideo.jp           keep=all  min=0  engine=yt-dlp  also=nico.ms  id=[a-z]{2}\d+  yt=--write-description
+# serial: one video at a time. Four lanes would each run -N 4 HLS fragments
+# (up to 16 concurrent connections), and nndownload warns that multiple
+# sessions on one connection get temporary blocks or throttling.
+nicovideo.jp           keep=all  min=0  engine=yt-dlp  also=nico.ms  id=[a-z]{2}\d+  serial  yt=--write-description

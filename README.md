@@ -12,6 +12,7 @@ It does not download anything by itself. The heavy lifting is done by:
 | **gallery-dl** | image boards, galleries, fanbox/kemono-style posts | [mikf/gallery-dl](https://github.com/mikf/gallery-dl) |
 | **megatools** | MEGA public folders (optional) | [megous/megatools](https://github.com/megous/megatools) |
 | **mediafire_rs** | MediaFire folders and files (optional) | [NicKoehler/mediafire_rs](https://github.com/NicKoehler/mediafire_rs) |
+| **gdown** | Google Drive files and folders (optional) | [wkentaro/gdown](https://github.com/wkentaro/gdown) |
 | **ffmpeg** | merging video+audio streams | [FFmpeg](https://ffmpeg.org/) |
 | **Node.js** | yt-dlp's JavaScript challenges | [nodejs.org](https://nodejs.org/) |
 
@@ -22,6 +23,20 @@ It does not download anything by itself. The heavy lifting is done by:
 > the code is honest rather than clever. Expect rough edges, and read a diff
 > before you trust it with a 4 TB library. If you want a polished downloader,
 > use the engines above directly - they are excellent.
+
+## What it looks like
+
+![four lanes busy: a MEGA video, a YouTube video still resolving, and two YouTube downloads at 2 MiB/s, with the lane board underneath](docs/images/lanes.png)
+
+The block at the bottom is the **lane board**, one line per download slot:
+queue position, the URL or file being written, its percentage and speed. Both
+`lane N` and the file name are hyperlinks - the label opens the folder the file
+is going into, the name opens the file - and they work the same way on Linux
+and in Windows Terminal.
+
+Above it is the run log: one line per finished link with the engine that
+actually fetched it (`OK|yt-dlp`, `OK|gdown`, `OK|gallery-dl`, `FAILED`, ...),
+plus the clickable file it produced.
 
 ## Why another downloader?
 

@@ -391,6 +391,8 @@ def run_mode(
         f"    probe mode ({mode} level): copy a playlist/user-page link; its new items go to queue.txt."
     ))
     out(paint.darkgray(
+        "    downloads were already paused and stay paused after probe mode."
+        if was_paused else
         "    downloads stay paused until you end probe mode (Esc or Ctrl+C), which resumes the queue."
     ))
 
@@ -421,7 +423,7 @@ def run_mode(
             for item in result.new:
                 queued.update(knowledge.keys(item.url))
             out(paint.yellow(
-                "    downloads are PAUSED: review queue.txt, then resume with menu 1 -> 6."
+                "    downloads are PAUSED: review queue.txt, then resume with menu 1 -> 7."
             ))
         log = paths.logs / time.strftime("probe-%Y%m%d-%H%M%S.txt")
         try:

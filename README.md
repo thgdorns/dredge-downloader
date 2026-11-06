@@ -118,12 +118,12 @@ copy config\gallery-dl.conf.example config\gallery-dl.conf
 | `--no-update` / `--no-cookies` | skip the engine update / cookie refresh |
 | `--strict-generic` | strict mode: a generic-extractor result only counts on hosts in `generic-sites.txt` |
 | `--ignore-records` | ignore every record and engine archive (menu 1 -> 1) |
-| `--refresh URL` | re-check one post against gallery-dl's position archive (repeatable; menu 1 -> 9) |
+| `--refresh URL` | re-check one post against gallery-dl's position archive (repeatable) |
 | `--root DIR` | folder holding `config/`, `data/`, `logs/` (default: cwd) |
 
 Press **M** while it runs to open the menu. Inside: records check on/off, retry
 failed, retry skipped, skip failed, probe files, lane count, pause/resume,
-strict mode, refresh post, and shortcuts to the record files. **Esc** goes back.
+strict mode, and shortcuts to the record files. **Esc** goes back.
 
 The lane count chosen in the menu (item 6) is written back to
 `config/dredge.conf` (`max_downloads = N`), so the next start uses it;

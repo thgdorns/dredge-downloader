@@ -25,7 +25,6 @@ def show_checks_menu(
     knowledge: Knowledge,
     *,
     probe_files: Callable[[], None] | None = None,
-    refresh_post: Callable[[str], None] | None = None,
 ) -> None:
     while True:
         paused = runtime.paths.paused.exists()
@@ -57,10 +56,6 @@ def show_checks_menu(
             menu.MenuItem(
                 "8", f"strict mode     [{'ON' if runtime.strict_generic else 'OFF'}]  "
                      "the generic tier only runs on hosts in generic-sites.txt"
-            ),
-            menu.MenuItem(
-                "9", "refresh post    re-check one post against gallery-dl's "
-                     "archive (archived files stay skipped)"
             ),
         ]
         choice = menu.select("checks", items, close="back")
@@ -121,17 +116,6 @@ def show_checks_menu(
                      "extractor only counts on hosts in generic-sites.txt.")
             else:
                 _say("strict mode OFF - the generic tier may handle any host.")
-        elif choice == "9":
-            if not refresh_post:
-                _say("refresh needs the engines - run dredge normally.", "yellow")
-                continue
-            answer = menu.prompt_line("    post URL to refresh ").strip()
-            if not answer:
-                _say("refresh cancelled.", "darkgray")
-            elif not answer.lower().startswith(("http://", "https://")):
-                _say("that is not an http(s) URL.", "yellow")
-            else:
-                refresh_post(answer)
 
 
 def show_files_menu(runtime: Runtime) -> None:
@@ -178,7 +162,6 @@ def show_dredge_menu(
     knowledge: Knowledge,
     *,
     probe_files: Callable[[], None] | None = None,
-    refresh_post: Callable[[str], None] | None = None,
 ) -> None:
     items = [
         menu.MenuItem(
@@ -193,7 +176,7 @@ def show_dredge_menu(
         if choice == "1":
             show_checks_menu(
                 runtime, knowledge,
-                probe_files=probe_files, refresh_post=refresh_post,
+                probe_files=probe_files,
             )
         elif choice == "2":
             show_files_menu(runtime)

@@ -164,7 +164,6 @@ def _run_instance(
         show_dredge_menu(
             runtime, knowledge,
             probe_files=lambda: run_probe(runtime, knowledge, engines, files=True),
-            refresh_post=refresh_callback(runtime, knowledge, engines),
         )
         if not (settings.once or settings.dry_run):
             return 0
@@ -292,7 +291,7 @@ def clean_staging(dest: Path) -> None:
 def run_probe(
     runtime: Runtime, knowledge: Knowledge, engines: Engines, *, files: bool
 ) -> int:
-    """``--probe`` / menu 1 -> 4: list pages, queue new items, keep downloads paused."""
+    """``--probe`` / menu 1 -> 5: list pages, queue new items, keep downloads paused."""
     return run_mode(runtime, knowledge, engines, files=files)
 
 
@@ -329,18 +328,6 @@ def run_worker(
     return 0
 
 
-def refresh_callback(runtime: Runtime, knowledge: Knowledge, engines: Engines):
-    """The menu's "refresh post" action: one URL, gallery-dl archive-aware."""
-
-    def refresh_post(url: str) -> None:
-        # The menu runs while a pass may be active; appending the rows is safe,
-        # but rewriting downloads.tsv here would race with the orchestrator's
-        # next merge. Leave the merge to the pass.
-        run_refresh(runtime, knowledge, engines, [url], merge=False)
-
-    return refresh_post
-
-
 def run_refresh(
     runtime: Runtime,
     knowledge: Knowledge,
@@ -349,7 +336,7 @@ def run_refresh(
     *,
     merge: bool = True,
 ) -> int:
-    """``--refresh`` / menu 1 -> 9: re-check a post against gallery-dl's archive.
+    """``--refresh``: re-check a post against gallery-dl's archive.
 
     The TSV is not consulted, but gallery-dl's archive is. With the default
     position key (``{service}_{user}_{id}_{num}``), files already archived are
@@ -427,7 +414,6 @@ def run_loop(runtime: Runtime, knowledge: Knowledge, engines: Engines) -> int:
             show_dredge_menu(
                 runtime, knowledge,
                 probe_files=lambda: run_probe(runtime, knowledge, engines, files=True),
-                refresh_post=refresh_callback(runtime, knowledge, engines),
             )
         finally:
             opened.clear()
@@ -446,7 +432,7 @@ def run_loop(runtime: Runtime, knowledge: Knowledge, engines: Engines) -> int:
             if not runtime.pause_shown:
                 print(paint.yellow(
                     f"[{_clock()}] downloads are paused - queue.txt is waiting for review "
-                    "(menu 1 -> 6 resumes)."
+                    "(menu 1 -> 7 resumes)."
                 ))
                 runtime.pause_shown = True
             if settings.once:

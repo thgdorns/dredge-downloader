@@ -14,6 +14,7 @@ import argparse
 import shutil
 import sys
 import time
+import webbrowser
 from pathlib import Path
 
 from . import __version__, clipboard, cookies, menu, paint, records, state
@@ -228,14 +229,56 @@ def prepare(
 
     if not args.no_update and not settings.dry_run:
         print(paint.darkgray("Updating engines..."))
-        if engines.yt:
-            run([engines.yt, "--ignore-config", "-U"], cwd=paths.root)
-        if engines.gdl:
-            run([engines.gdl, "--config-ignore", "-U"], cwd=paths.root)
+        update_engines(paths, engines)
 
     if not args.no_cookies and not settings.dry_run:
         message = cookies.refresh(paths, knowledge, engines.gdl, settings.cookies_browser)
         print(paint.darkgray(message))
+
+
+def update_engines(paths: Paths, engines: Engines) -> None:
+    """Update both engines; open the changelog page when a version changed.
+
+    Neither tool has a flag for that (``-U`` prints "Updated ... to version X"
+    and stops), so the version is read before and after and the release page is
+    opened by us. A failed update, or no change, opens nothing.
+    """
+    targets = (
+        ("yt-dlp", engines.yt, ["--ignore-config", "-U"]),
+        ("gallery-dl", engines.gdl, ["--config-ignore", "-U"]),
+    )
+    for name, exe, update_args in targets:
+        if not exe:
+            continue
+        before = _engine_version(exe, paths)
+        run([exe, *update_args], cwd=paths.root)
+        after = _engine_version(exe, paths)
+        if not before or not after or before == after:
+            continue
+        url = ENGINE_CHANGELOG.get(name)
+        print(paint.green(f"{name} {before} -> {after}"))
+        if url:
+            print(paint.darkgray(f"  changelog: {url}"))
+            try:
+                webbrowser.open(url)
+            except Exception:  # noqa: BLE001, S110 - no browser must not stop the start
+                pass
+
+
+def _engine_version(exe: str, paths: Paths) -> str:
+    rc, text = run([exe, "--version"], cwd=paths.root)
+    if rc != 0:
+        return ""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return lines[-1] if lines else ""
+
+
+# Release pages rather than Changelog.md: they show the newest notes first and
+# work whatever the tag format is (yt-dlp tags by date, gallery-dl by version).
+ENGINE_CHANGELOG = {
+    "yt-dlp": "https://github.com/yt-dlp/yt-dlp/releases",
+    "gallery-dl": "https://github.com/mikf/gallery-dl/releases",
+}
 
 
 def sort_records(paths: Paths) -> None:

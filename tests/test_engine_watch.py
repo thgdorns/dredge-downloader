@@ -1,4 +1,4 @@
-﻿from datetime import date
+from datetime import date
 from pathlib import Path
 
 from dredge import watch
@@ -182,3 +182,34 @@ def test_report_table_is_rendered():
     assert "## Upstream reports" in text
     assert "| open | [yt-dlp#1](https://github.com/o/r/issues/1) - a report |" in text
 
+
+def test_unsupported_keeps_while_the_engine_refuses_the_url():
+    check = watch.Check.from_dict(
+        {"kind": "unsupported", "engine": "yt-dlp", "url": "https://iwara.ai/video/x"}
+    )
+    verdict, note = watch.check_unsupported(
+        check,
+        "yt-dlp",
+        runner(lambda a: (1, "ERROR: Unsupported URL: https://iwara.ai/video/x")),
+    )
+    assert verdict == watch.KEEP
+    assert "Unsupported URL" in note
+
+
+def test_unsupported_retires_when_the_engine_extracts_it():
+    check = watch.Check.from_dict(
+        {"kind": "unsupported", "engine": "yt-dlp", "url": "https://iwara.ai/video/x"}
+    )
+    verdict, note = watch.check_unsupported(
+        check, "yt-dlp", runner(lambda a: (0, "iwara")),
+    )
+    assert verdict == watch.RETIRE
+    assert "iwara" in note
+
+
+def test_unsupported_without_the_engine_is_unknown():
+    check = watch.Check.from_dict(
+        {"kind": "unsupported", "engine": "yt-dlp", "url": "https://iwara.ai/video/x"}
+    )
+    verdict, _ = watch.check_unsupported(check, None, runner(lambda a: (0, "")))
+    assert verdict == watch.UNKNOWN

@@ -58,7 +58,7 @@ class Check:
     @classmethod
     def from_dict(cls, raw: dict) -> Check:
         kind = str(raw.get("kind", ""))
-        if kind not in ("help_flag", "extractor", "issue", "manual"):
+        if kind not in ("help_flag", "extractor", "unsupported", "issue", "manual"):
             raise ValueError(f"unknown check kind: {kind!r}")
         return cls(
             kind=kind,
@@ -208,6 +208,34 @@ def check_extractor(check: Check, exe: str | None, runner: Runner) -> tuple[str,
     return KEEP, f"{check.url} still falls back to `{extractor}`"
 
 
+def check_unsupported(check: Check, exe: str | None, runner: Runner) -> tuple[str, str]:
+    """KEEP while the engine refuses the URL, RETIRE once it extracts it.
+
+    For workarounds that exist *because* an extractor does not cover a host
+    (iwara.ai): the day the engine stops answering "Unsupported URL" the
+    workaround - a pinned engine, a rewrite, a mirror - can go.
+    """
+    if not exe:
+        return UNKNOWN, f"{check.engine} is not installed"
+    rc, text = runner(
+        [
+            exe, "--ignore-config", "--no-warnings", "--simulate",
+            "--print", "%(extractor)s", check.url,
+        ],
+        check.timeout,
+    )
+    lines = [
+        line.strip() for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith("[")
+    ]
+    if rc == 0 and lines:
+        return RETIRE, f"{check.url} is handled by `{lines[-1].lower()}`"
+    if re.search(r"(?i)unsupported url|is not a valid url", text):
+        return KEEP, f"{check.engine} still answers Unsupported URL for {check.url}"
+    tail = text.strip().splitlines()[-1] if text.strip() else f"exit {rc}"
+    return UNKNOWN, f"could not check {check.url}: {tail[:160]}"
+
+
 def check_issue(check: Check, fetcher: Fetcher) -> tuple[str, str]:
     match = _ISSUE_RE.search(check.url)
     if not match:
@@ -264,6 +292,8 @@ def evaluate(
             verdict, note = (UNKNOWN, "offline") if offline else check_issue(check, fetcher)
         elif check.kind == "help_flag":
             verdict, note = check_help_flag(check, resolve_exe(check.engine), runner)
+        elif check.kind == "unsupported":
+            verdict, note = check_unsupported(check, resolve_exe(check.engine), runner)
         else:
             verdict, note = check_extractor(check, resolve_exe(check.engine), runner)
         verdicts.append(verdict)

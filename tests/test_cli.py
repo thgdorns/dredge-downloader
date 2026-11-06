@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from dredge import __version__, cli, records
 from dredge.cli import build_parser, sort_records
 from dredge.config import Paths
@@ -74,3 +76,44 @@ def test_startup_sorts_the_record_lists(tmp_path):
     assert records.read_lines(paths.skip) == ["https://A", "https://z"]
     assert paths.skip.read_bytes().startswith(b"# keep this\r\n")
 
+
+def test_an_engine_update_opens_its_changelog(tmp_path, monkeypatch):
+    paths = Paths(tmp_path)
+    paths.ensure()
+    versions = {
+        "yt-dlp": ["2026.01.01", "2026.02.02"],
+        "gallery-dl": ["1.30.0", "1.30.0"],
+    }
+    updates: list[list[str]] = []
+
+    def fake_run(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+        name = Path(str(args[0])).stem
+        if "--version" in args:
+            return 0, versions[name].pop(0) + "\n"
+        updates.append(list(args))
+        return 0, ""
+
+    opened: list[str] = []
+    monkeypatch.setattr(cli, "run", fake_run)
+    monkeypatch.setattr(cli.webbrowser, "open", opened.append)
+
+    cli.update_engines(paths, cli.Engines(yt="yt-dlp", gdl="gallery-dl"))
+
+    assert [update[0] for update in updates] == ["yt-dlp", "gallery-dl"]
+    assert opened == ["https://github.com/yt-dlp/yt-dlp/releases"]
+
+
+def test_an_unchanged_engine_opens_nothing(tmp_path, monkeypatch):
+    paths = Paths(tmp_path)
+    paths.ensure()
+
+    def fake_run(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+        return 0, "1.30.0\n"
+
+    opened: list[str] = []
+    monkeypatch.setattr(cli, "run", fake_run)
+    monkeypatch.setattr(cli.webbrowser, "open", opened.append)
+
+    cli.update_engines(paths, cli.Engines(yt="yt-dlp", gdl="gallery-dl"))
+
+    assert opened == []

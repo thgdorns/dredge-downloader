@@ -29,6 +29,25 @@
       ]
     },
     {
+      "id": "yt-iwara-ai",
+      "title": "iwara.ai is pinned to gallery-dl because yt-dlp's Iwara extractor only matches iwara.tv",
+      "engine": "yt-dlp",
+      "added": "2026-11-06",
+      "where": [
+        "config/sites.txt:iwara.ai",
+        "src/dredge/sites.py:engine"
+      ],
+      "retire_when": "yt-dlp's iwara extractor matches iwara.ai; the pin then becomes engine=yt-dlp",
+      "issue": "",
+      "checks": [
+        {
+          "kind": "unsupported",
+          "engine": "yt-dlp",
+          "url": "https://iwara.ai/video/SpsXHdG3dY1AXo/2b-dances"
+        }
+      ]
+    },
+    {
       "id": "yt-locale",
       "title": "Locale tube hosts are rewritten to the bare domain before yt-dlp sees them",
       "engine": "yt-dlp",

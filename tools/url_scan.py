@@ -22,14 +22,23 @@ Besides URLs it collects the passwords posts hand out (``pass is xyz``,
 ``パスワード：テスト``, ``비밀번호: 1234``) in English, Spanish, Japanese,
 Chinese and Korean.
 
+Once a URL is in the report it has done its job, so the metadata that carried
+it is sent to the recycle bin (see ``--keep-metadata``).
+
+Duplicate values are merged into one row, with every file that contained it
+joined by ``;``. A mega/mediafire/drive link is not reported at all: it is
+appended to ``data/queue.txt`` as ``url<TAB>folder``, pointing at the folder the
+link was found in, so dredge downloads it next to the post it belongs to.
+
 Output columns (one file each):
     1. value -- the URL or password that was found
-    2. path  -- absolute path of the file that contained it
+    2. paths -- absolute path(s) of the file(s) that contained it, ';'-joined
 
 Examples:
     py tools\\url_scan.py                  # default destination, sidecars only
     py tools\\url_scan.py -e .json         # every .json, sidecar or not
     py tools\\url_scan.py -e '*'           # every file
+    py tools\\url_scan.py --no-queue       # leave file-host links in the report
     py tools\\url_scan.py --keep-metadata  # do not recycle what was scanned
     py tools\\url_scan.py --no-passwords   # URLs only
     py tools\\url_scan.py --no-open -q     # headless run
@@ -48,6 +57,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from dredge.config import Paths, Settings
 from dredge.destinations import apply_fallback
@@ -57,6 +67,13 @@ ROOT = Path(__file__).resolve().parent.parent
 # What a default scan reads: yt-dlp descriptions and the JSON sidecars
 # pawchive/kemono write next to every file.
 DEFAULT_EXTENSIONS = (".description", ".json")
+
+# Links that are queued instead of reported: each one names a file the post is
+# handing out, so dredge fetches it directly into the folder the link was found
+# in.
+FILEHOSTS = (
+    "mediafire.com", "drive.google.com", "docs.google.com", "mega.nz", "mega.io",
+)
 
 # The extension in front of ".json" has to be a real file kind: mod data named
 # "Shu.upgrades.json" is not a downloader sidecar and must not be recycled.
@@ -329,6 +346,46 @@ def sanitise_field(value: str) -> str:
     return value.replace("\t", "%09").replace("\r", "").replace("\n", "")
 
 
+def is_filehost(url: str) -> bool:
+    """True for the links that belong in the queue, not in the report."""
+    host = (urlsplit(url).hostname or "").lower().removeprefix("www.")
+    return any(host == d or host.endswith("." + d) for d in FILEHOSTS)
+
+
+def merge_rows(rows: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """One row per value; the files it was found in are joined with ``;``."""
+    merged: dict[str, list[str]] = {}
+    for value, path in rows:
+        paths = merged.setdefault(value, [])
+        if path not in paths:
+            paths.append(path)
+    return [(value, ";".join(paths)) for value, paths in merged.items()]
+
+
+def queue_links(path: Path, rows: list[tuple[str, str]]) -> tuple[int, int]:
+    """Append ``url<TAB>folder`` lines; returns ``(added, already queued)``."""
+    if not rows:
+        return 0, 0
+    existing: set[str] = set()
+    if path.exists():
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            existing.add(line.split("\t", 1)[0].strip())
+    lines: list[str] = []
+    skipped = 0
+    for url, folder in rows:
+        if not folder or url in existing:
+            skipped += 1
+            continue
+        existing.add(url)
+        lines.append(f"{url}\t{folder}")
+    if lines:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8", newline="") as handle:
+            for line in lines:
+                handle.write(line + "\r\n")
+    return len(lines), skipped
+
+
 def write_tsv(path: Path, rows: list[tuple[str, str]]) -> None:
     """``value<TAB>path`` per row, with every field kept to one line."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -540,9 +597,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="convert HTML entities in found URLs (&amp; -> &)",
     )
     parser.add_argument(
-        "--keep-duplicates", action="store_true",
-        help="keep repeated URLs from the same file (default: deduplicate "
-             "per file)",
+        "--no-queue", action="store_true",
+        help="do not add mega/mediafire/drive links to queue.txt (default: "
+             "they are queued into the folder they were found in and dropped "
+             "from the report)",
     )
     parser.add_argument(
         "--no-sort", action="store_true",
@@ -603,9 +661,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     rows: list[tuple[str, str]] = []
-    seen: set[tuple[str, str]] = set()
     password_rows: list[tuple[str, str]] = []
-    seen_passwords: set[tuple[str, str]] = set()
     scanned: list[Path] = []
     skipped_large = 0
     skipped_binary = 0
@@ -633,32 +689,43 @@ def main(argv: list[str] | None = None) -> int:
             text = decode_json_escapes(text)
 
         full_path = str(path)
-        urls = extract_urls(text)
-        for url in urls:
+        for url in extract_urls(text):
             if args.html_entities:
                 url = html.unescape(url)
-            key = (url, full_path)
-            if not args.keep_duplicates:
-                if key in seen:
-                    continue
-                seen.add(key)
-            rows.append(key)
+            rows.append((url, full_path))
 
         if not args.no_passwords:
             for value in extract_passwords(text):
-                key = (value, full_path)
-                if key in seen_passwords:
-                    continue
-                seen_passwords.add(key)
-                password_rows.append(key)
+                password_rows.append((value, full_path))
 
+    table = merge_rows(rows)
+    password_table = merge_rows(password_rows)
     if not args.no_sort:
-        rows.sort(key=lambda row: (row[1].lower(), row[0]))
-        password_rows.sort(key=lambda row: (row[1].lower(), row[0]))
+        table.sort(key=lambda row: (row[1].split(";", 1)[0].lower(), row[0]))
+        password_table.sort(
+            key=lambda row: (row[1].split(";", 1)[0].lower(), row[0])
+        )
 
-    write_tsv(output, rows)
+    # File-host links are the point of the scan: they are queued into the
+    # folder the link was found in, and leave the report.
+    report_rows: list[tuple[str, str]] = []
+    queue_rows: list[tuple[str, str]] = []
+    for url, paths in table:
+        if args.no_queue or not is_filehost(url):
+            report_rows.append((url, paths))
+            continue
+        queue_rows.append((url, str(Path(paths.split(";", 1)[0]).parent)))
+
+    write_tsv(output, report_rows)
     if not args.no_passwords:
-        write_tsv(passwords_output, password_rows)
+        write_tsv(passwords_output, password_table)
+
+    queued = 0
+    already = 0
+    if not args.no_queue:
+        queue_path = Paths(root).queue
+        queued, already = queue_links(queue_path, queue_rows)
+        queued_path = queue_path
 
     trashed = 0
     leftovers: list[str] = []
@@ -671,15 +738,17 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.quiet:
         print(
-            f"scanned {len(files)} file(s) under {folder}, found {len(rows)} "
-            f"URL(s) in {len({r[1] for r in rows})} file(s)"
+            f"scanned {len(files)} file(s) under {folder}, found "
+            f"{len(table)} URL(s) in {len(rows)} row(s)"
         )
         print(f"report: {output}")
-        if not args.no_passwords:
+        if queued or queue_rows:
             print(
-                f"passwords: {len(password_rows)} in "
-                f"{len({r[1] for r in password_rows})} file(s) -> {passwords_output}"
+                f"queued {queued} file-host link(s) into {queued_path}"
+                + (f" ({already} already queued)" if already else "")
             )
+        if not args.no_passwords:
+            print(f"passwords: {len(password_table)} -> {passwords_output}")
         if trashed:
             print(f"moved {trashed} metadata file(s) to the recycle bin")
         if leftovers:

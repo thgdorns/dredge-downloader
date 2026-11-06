@@ -136,3 +136,97 @@ def test_the_scan_writes_a_password_report(tmp_path):
     assert "https://example.com/post" in urls
     assert "hunter2" in passwords
     assert "example.com" not in passwords
+
+
+def test_one_row_per_value_with_every_source(tmp_path):
+    module = load()
+    downloads = tmp_path / "downloads"
+    (downloads / "post").mkdir(parents=True)
+    for name in ("a.jpg.json", "b.jpg.json"):
+        (downloads / "post" / name).write_text(json.dumps({
+            "content": "<p>same https://example.com/one plus https://example.com/two</p>",
+        }), encoding="utf-8")
+
+    module.main([
+        "--root", str(tmp_path), str(downloads),
+        "--keep-metadata", "--no-open", "-q",
+    ])
+
+    rows = next((tmp_path / "reports").glob("url-scan-*.tsv")).read_text(
+        encoding="utf-8").splitlines()
+    assert len(rows) == 2
+    first = rows[0].split("\t")
+    assert first[0] == "https://example.com/one"
+    assert len(first[1].split(";")) == 2      # both sidecars, one row
+
+
+def test_file_host_links_are_queued_into_their_folder(tmp_path):
+    module = load()
+    downloads = tmp_path / "downloads"
+    (downloads / "author" / "123456").mkdir(parents=True)
+    (downloads / "author" / "123456" / "a.jpg.json").write_text(json.dumps({
+        "content": "<p>video https://drive.google.com/file/d/abc/view and "
+                   "https://mega.nz/file/xyz#key and https://example.com/keep</p>",
+    }), encoding="utf-8")
+
+    module.main([
+        "--root", str(tmp_path), str(downloads),
+        "--keep-metadata", "--no-open", "-q",
+    ])
+
+    queue = tmp_path / "data" / "queue.txt"
+    queued = queue.read_text(encoding="utf-8").splitlines()
+    folder = downloads / "author" / "123456"
+    assert queued == [
+        f"https://drive.google.com/file/d/abc/view\t{folder}",
+        f"https://mega.nz/file/xyz#key\t{folder}",
+    ]
+    report = next((tmp_path / "reports").glob("url-scan-*.tsv")).read_text(
+        encoding="utf-8")
+    assert "example.com/keep" in report
+    assert "drive.google.com" not in report
+    assert "mega.nz" not in report
+
+
+def test_no_queue_keeps_the_file_host_links_in_the_report(tmp_path):
+    module = load()
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    (downloads / "a.jpg.json").write_text(json.dumps({
+        "content": "<p>https://drive.google.com/file/d/abc/view</p>",
+    }), encoding="utf-8")
+
+    module.main([
+        "--root", str(tmp_path), str(downloads),
+        "--keep-metadata", "--no-open", "-q", "--no-queue",
+    ])
+
+    assert not (tmp_path / "data" / "queue.txt").exists()
+    report = next((tmp_path / "reports").glob("url-scan-*.tsv")).read_text(
+        encoding="utf-8")
+    assert "drive.google.com/file/d/abc/view" in report
+
+
+def test_a_link_already_queued_is_not_added_twice(tmp_path):
+    module = load()
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    (downloads / "a.jpg.json").write_text(json.dumps({
+        "content": "<p>https://mega.nz/file/xyz#key</p>",
+    }), encoding="utf-8")
+    queue = tmp_path / "data" / "queue.txt"
+    queue.parent.mkdir(parents=True)
+    queue.write_text(
+        "https://mega.nz/file/xyz#key\tG:\\somewhere\r\n",
+        encoding="utf-8",
+        newline="",
+    )
+
+    module.main([
+        "--root", str(tmp_path), str(downloads),
+        "--keep-metadata", "--no-open", "-q",
+    ])
+
+    assert queue.read_text(encoding="utf-8").splitlines() == [
+        "https://mega.nz/file/xyz#key\tG:\\somewhere"
+    ]

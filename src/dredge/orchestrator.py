@@ -99,6 +99,22 @@ def _fallback(
     return refreshed
 
 
+def drain_clipboard(paths: Paths, settings: Settings) -> list[str]:
+    """Move clipboard URLs from ``clip-inbox.txt`` into ``queue.txt``.
+
+    The Capture thread only writes the inbox. Draining it is separate from
+    downloading, so the paused loop can keep queue.txt current without starting
+    a pass. Returns the lines added.
+    """
+    if settings.dry_run or settings.no_capture:
+        return []
+    captured = state.read_clip_inbox(paths.clip_inbox)
+    if not captured:
+        return []
+    records.append_lines(paths.queue, captured)
+    return captured
+
+
 def run_pass(
     runtime: Runtime,
     knowledge: Knowledge,
@@ -115,12 +131,10 @@ def run_pass(
 
     urls = read_queue(paths.queue)
 
-    if not settings.dry_run and not settings.no_capture:
-        captured = state.read_clip_inbox(paths.clip_inbox)
-        if captured:
-            records.append_lines(paths.queue, captured)
-            out(paint.cyan(f"[{stamp()}] clipboard: +{len(captured)} URL(s) queued."))
-            urls += captured
+    captured = drain_clipboard(paths, settings)
+    if captured:
+        out(paint.cyan(f"[{stamp()}] clipboard: +{len(captured)} URL(s) queued."))
+        urls += captured
 
     if not settings.dry_run and paths.staged_queue.exists():
         staged = read_queue(paths.staged_queue)

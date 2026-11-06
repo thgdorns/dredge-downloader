@@ -23,7 +23,7 @@ from .config import Paths, Runtime, Settings, write_gallery_runtime
 from .destinations import apply_fallback, load_domains
 from .engines import Engines, run
 from .lock import AlreadyRunning, InstanceLock
-from .orchestrator import run_pass
+from .orchestrator import drain_clipboard, run_pass
 from .plan import split_line
 from .probe import run_mode
 from .tui import show_dredge_menu
@@ -482,6 +482,12 @@ def run_loop(runtime: Runtime, knowledge: Knowledge, engines: Engines) -> int:
                     "(menu 1 -> 7 resumes)."
                 ))
                 runtime.pause_shown = True
+            captured = drain_clipboard(paths, settings)
+            if captured:
+                print(paint.cyan(
+                    f"[{_clock()}] clipboard: +{len(captured)} URL(s) queued "
+                    "(downloads stay paused)."
+                ))
             if settings.once:
                 break
             pause(1.0)

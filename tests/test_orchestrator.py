@@ -532,3 +532,71 @@ def test_a_relative_destination_lands_where_the_absolute_one_would(
 
     assert seen == [root / "bluethebone" / "38549292"]
 
+
+def test_clipboard_inbox_is_drained_into_the_queue(tmp_path):
+    paths = Paths(tmp_path)
+    settings = Settings.load(paths, dest_default=tmp_path / "dest")
+    records.write_lines(paths.clip_inbox, [
+        "https://example.com/a",
+        "https://example.com/b\tSome Author",
+    ])
+
+    added = orchestrator.drain_clipboard(paths, settings)
+
+    assert added == [
+        "https://example.com/a",
+        "https://example.com/b\tSome Author",
+    ]
+    assert records.read_lines(paths.queue) == added
+    assert not paths.clip_inbox.exists()
+
+
+def test_clipboard_drain_is_skipped_when_capture_is_off(tmp_path):
+    paths = Paths(tmp_path)
+    settings = Settings.load(
+        paths, dest_default=tmp_path / "dest", no_capture=True
+    )
+    records.write_lines(paths.clip_inbox, ["https://example.com/a"])
+
+    assert orchestrator.drain_clipboard(paths, settings) == []
+    assert records.read_lines(paths.queue) == []
+    assert paths.clip_inbox.exists()
+
+
+def test_run_loop_drains_the_clipboard_while_paused(tmp_path, monkeypatch):
+    from dredge import cli
+    from dredge.engines import Engines
+
+    paths = Paths(tmp_path)
+    paths.ensure()
+    settings = Settings.load(paths, dest_default=tmp_path / "dest")
+    runtime = Runtime(paths, settings)
+    knowledge = Knowledge({}, SiteRule(host="*"), MirrorTable())
+    paths.paused.touch()
+    records.write_lines(paths.clip_inbox, ["https://example.com/a"])
+
+    monkeypatch.setattr(cli, "_start_capture", lambda runtime: None)
+    monkeypatch.setattr(cli.menu, "wait", lambda *a, **k: None)
+
+    real_drain = cli.drain_clipboard
+
+    def drain_then_unpause(paths_, settings_):
+        added = real_drain(paths_, settings_)
+        paths_.paused.unlink(missing_ok=True)
+        return added
+
+    monkeypatch.setattr(cli, "drain_clipboard", drain_then_unpause)
+
+    class Stop(Exception):
+        pass
+
+    def stop(*args, **kwargs):
+        raise Stop
+
+    monkeypatch.setattr(cli, "run_pass", stop)
+
+    with pytest.raises(Stop):
+        cli.run_loop(runtime, knowledge, Engines())
+
+    assert records.read_lines(paths.queue) == ["https://example.com/a"]
+

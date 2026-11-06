@@ -483,3 +483,23 @@ def test_a_queued_path_is_used_exactly(tmp_path, monkeypatch):
 
     assert seen == [(elsewhere, str(elsewhere / settings.tpl_flat))]
 
+
+def test_a_failed_line_keeps_its_destination(tmp_path, monkeypatch):
+    paths = Paths(tmp_path)
+    paths.ensure()
+    settings = Settings.load(
+        paths, dest_default=tmp_path / "dest", max_downloads=1,
+        no_capture=True, progress_every_seconds=0,
+    )
+    line = "https://example.com/bad\tSome Author"
+    records.write_lines(paths.queue, [line])
+    monkeypatch.setattr(orchestrator, "Worker", FakeWorker)
+
+    runtime = Runtime(paths, settings)
+    run_pass(
+        runtime, Knowledge({}, SiteRule(host="*"), MirrorTable()),
+        orchestrator.Engines(), out=lambda message: None,
+    )
+
+    assert records.read_lines(paths.fail) == [line]
+

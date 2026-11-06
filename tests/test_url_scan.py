@@ -19,6 +19,8 @@ def test_a_sidecar_json_is_recognised(tmp_path):
 
     assert module.is_sidecar(tmp_path / "photo.jpg.json")
     assert module.is_sidecar(tmp_path / "clip.mp4.json")
+    assert module.is_sidecar(tmp_path / "post.json")
+    assert module.is_sidecar(tmp_path / "some" / "post.json")
     assert not module.is_sidecar(tmp_path / "metadata.json")
     assert not module.is_sidecar(tmp_path / "Shu.upgrades.json")
     assert not module.is_sidecar(tmp_path / "clip.mp4")

@@ -23,6 +23,7 @@ from .destinations import apply_fallback, load_domains
 from .engines import Engines, run
 from .lock import AlreadyRunning, InstanceLock
 from .orchestrator import run_pass
+from .plan import split_line
 from .probe import run_mode
 from .tui import show_dredge_menu
 from .urls import Knowledge
@@ -395,7 +396,10 @@ def _clear_failure(paths: Paths, knowledge: Knowledge, url: str) -> None:
     key = knowledge.canon(url)
     for path in (paths.fail, paths.offline):
         lines = records.read_lines(path)
-        kept = [line for line in lines if knowledge.canon(line) != key]
+        kept = [
+            line for line in lines
+            if knowledge.canon(split_line(line)[0]) != key
+        ]
         if len(kept) != len(lines):
             records.write_lines(path, kept)
 

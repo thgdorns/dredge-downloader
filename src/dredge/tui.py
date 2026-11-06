@@ -14,6 +14,7 @@ from pathlib import Path
 
 from . import menu, paint, records, state
 from .config import Runtime
+from .plan import split_line
 from .report import write_reports
 from .urls import Knowledge
 
@@ -268,8 +269,8 @@ def retry_skipped(runtime: Runtime, knowledge: Knowledge) -> None:
         return
     queued = records.keyed_set(records.read_lines(paths.queue), knowledge)
     add = [
-        url for url in skipped
-        if not any(key in queued for key in knowledge.keys(url))
+        line for line in skipped
+        if not any(key in queued for key in knowledge.keys(split_line(line)[0]))
     ]
     try:
         # queue first, skip.txt second: if the queue cannot be written nothing is lost
@@ -297,8 +298,8 @@ def retry_failed(runtime: Runtime, knowledge: Knowledge) -> None:
         return
     queued = records.keyed_set(records.read_lines(paths.queue), knowledge)
     add = [
-        url for url in failed
-        if not any(key in queued for key in knowledge.keys(url))
+        line for line in failed
+        if not any(key in queued for key in knowledge.keys(split_line(line)[0]))
     ]
     try:
         # queue first, fail.txt second: if the queue cannot be written nothing is lost
@@ -324,8 +325,11 @@ def skip_failed(runtime: Runtime, knowledge: Knowledge) -> None:
     if not failed:
         _say("fail.txt has nothing to skip.", "darkgray")
         return
-    known = set(records.read_lines(paths.skip))
-    add = [url for url in failed if url not in known]
+    known = records.keyed_set(records.read_lines(paths.skip), knowledge)
+    add = [
+        line for line in failed
+        if not any(key in known for key in knowledge.keys(split_line(line)[0]))
+    ]
     try:
         # skip.txt first, fail.txt second: if the write fails nothing is lost
         if add:

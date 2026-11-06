@@ -35,7 +35,9 @@ def group_by_domain(lines: list[str]) -> dict[str, list[str]]:
     seen: set[str] = set()
     groups: dict[str, list[str]] = defaultdict(list)
     for raw in lines:
-        url = raw.strip()
+        # a queue line may carry its destination after a tab; the report is
+        # about the link
+        url = raw.split("\t", 1)[0].strip()
         if not url or url in seen:
             continue
         seen.add(url)

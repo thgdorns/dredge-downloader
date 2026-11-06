@@ -21,6 +21,15 @@ def test_group_by_domain_is_sorted_and_deduped():
     assert groups["a.example"] == ["https://a.example/y", "https://www.a.example/z"]
 
 
+def test_a_tab_destination_is_not_part_of_the_url():
+    groups = group_by_domain([
+        "https://a.example/x\tG:\\Downloads\\Some Author",
+        "https://a.example/y\tSome Author",
+    ])
+
+    assert groups == {"a.example": ["https://a.example/x", "https://a.example/y"]}
+
+
 def test_render_escapes_and_links_every_url():
     lines = ["https://a.example/x?a=1&b=2", "https://a.example/<bad>"]
     page = render("Test", lines, datetime(2026, 11, 4, 12, 0, tzinfo=UTC))

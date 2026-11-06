@@ -236,9 +236,13 @@ def normalise_extensions(values: list[str]) -> set[str] | None:
 
 
 def is_sidecar(path: Path) -> bool:
-    """``photo.jpg.json`` is a metadata sidecar; ``Shu.upgrades.json`` is data."""
+    """``photo.jpg.json`` and kemono's ``post.json`` are metadata sidecars."""
+    if path.suffix.lower() != ".json":
+        return False
+    if path.name.lower() == "post.json":
+        return True
     suffixes = path.suffixes
-    if len(suffixes) < 2 or suffixes[-1].lower() != ".json":
+    if len(suffixes) < 2:
         return False
     return suffixes[-2].lower() in SIDECAR_EXTENSIONS
 

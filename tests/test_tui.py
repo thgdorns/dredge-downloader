@@ -230,3 +230,25 @@ def test_the_main_menu_opens_the_tools_submenu(tmp_path, monkeypatch):
     tui.show_dredge_menu(runtime, knowledge)
 
     assert opened == [runtime]
+
+
+def test_retry_failed_keeps_the_destination(tmp_path):
+    paths, runtime, knowledge = setup(tmp_path)
+    line = "https://example.com/c\tSome Author"
+    records.write_lines(paths.fail, [line])
+    state.update_failed_set(runtime, knowledge)
+
+    tui.retry_failed(runtime, knowledge)
+
+    assert records.read_lines(paths.queue) == ["https://example.com/queued", line]
+
+
+def test_skip_failed_keeps_the_destination(tmp_path):
+    paths, runtime, knowledge = setup(tmp_path)
+    line = "https://example.com/c\tSome Author"
+    records.write_lines(paths.fail, [line])
+    state.update_failed_set(runtime, knowledge)
+
+    tui.skip_failed(runtime, knowledge)
+
+    assert records.read_lines(paths.skip) == ["https://example.com/skip", line]

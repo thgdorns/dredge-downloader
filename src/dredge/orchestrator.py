@@ -379,12 +379,13 @@ def run_pass(
                 if not settings.dry_run:
                     records.write_lines(paths.queue, remaining)
 
+                record_line = lane.line or lane.url
                 if verdict == "OFFLINE":
-                    records.append_lines(paths.offline, [lane.url])
+                    records.append_lines(paths.offline, [record_line])
                     stats.offline += 1
                     _mark_failed(runtime, knowledge, lane.url)
                 elif not verdict.startswith("OK|"):
-                    records.append_lines(paths.fail, [lane.url])
+                    records.append_lines(paths.fail, [record_line])
                     stats.failed += 1
                     _mark_failed(runtime, knowledge, lane.url)
                 else:

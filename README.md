@@ -364,6 +364,13 @@ docs/                engine-watch (workaround retirement audit) and notes
 legacy/              notes from the private PowerShell original
 ```
 
+## Site notes
+
+`config/sites.txt` carries the per-site rules; [`docs/site-notes.md`](docs/site-notes.md)
+carries the reasons - which mirrors are partial, where an engine refuses a host,
+why one downloader is pinned over another, and what would let a workaround go.
+Read it before changing a rule, and add to it when a site teaches you something.
+
 ## Watching the engines
 
 yt-dlp and gallery-dl change weekly, and some of the code here is a workaround

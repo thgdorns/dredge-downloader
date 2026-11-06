@@ -144,10 +144,11 @@ def _run_instance(
 ) -> int:
     settings = apply_fallback(settings)
     if settings.fallback_note:
-        print(paint.yellow(
-            f"[{_clock()}] {settings.fallback_note} "
+        note = (
+            f"{settings.fallback_note} "
             f"({settings.destinations[settings.default_dest].path})."
-        ))
+        )
+        print(f"{_ts()} {paint.yellow(note)}")
 
     try:
         prepare(paths, settings, knowledge, engines, args)
@@ -406,7 +407,7 @@ def run_refresh(
                 stale.unlink()
             except OSError:
                 pass
-        print(paint.darkgray(f"[{_clock()}] refresh: {url}"))
+        print(f"{_ts()} {paint.darkgray(f'refresh: {url}')}")
         verdict = worker.download(
             url, refresh=True, lane_log=lane_log, result=result,
             archive=lane_archive,
@@ -428,7 +429,10 @@ def run_refresh(
         if verdict.startswith("OK|"):
             ok += 1
             _clear_failure(paths, knowledge, url)
-        print(f"[{_clock()}] {verdict}  {url}")
+        url_text = (
+            paint.lightgreen(url) if verdict.startswith("OK|") else paint.lightred(url)
+        )
+        print(f"{_ts()} {verdict}  {url_text}")
     if ok:
         state.update_failed_set(runtime, knowledge)
     return 0 if ok == len(urls) else 1
@@ -469,10 +473,10 @@ def run_loop(runtime: Runtime, knowledge: Knowledge, engines: Engines) -> int:
         try:
             paused, message = toggle_paused(runtime, knowledge)
         except OSError as exc:
-            print(paint.red(f"[{_clock()}] pause failed: {exc}"))
+            print(f"{_ts()} {paint.red(f'pause failed: {exc}')}")
             return
         color = paint.yellow if paused else paint.green
-        print(color(f"[{_clock()}] {message}"))
+        print(f"{_ts()} {color(message)}")
 
     def pause(seconds: float) -> None:
         menu.wait(seconds, open_menu, on_pause=toggle)
@@ -486,17 +490,19 @@ def run_loop(runtime: Runtime, knowledge: Knowledge, engines: Engines) -> int:
     while True:
         if paths.paused.exists():
             if not runtime.pause_shown:
-                print(paint.yellow(
-                    f"[{_clock()}] downloads are paused - queue.txt is waiting for review "
+                message = (
+                    "downloads are paused - queue.txt is waiting for review "
                     "(P or menu 1 -> 7 resumes)."
-                ))
+                )
+                print(f"{_ts()} {paint.yellow(message)}")
                 runtime.pause_shown = True
             captured = drain_clipboard(paths, settings)
             if captured:
-                print(paint.cyan(
-                    f"[{_clock()}] clipboard: +{len(captured)} URL(s) queued "
+                message = (
+                    f"clipboard: +{len(captured)} URL(s) queued "
                     "(downloads stay paused)."
-                ))
+                )
+                print(f"{_ts()} {paint.cyan(message)}")
             if settings.once:
                 break
             pause(1.0)
@@ -508,9 +514,7 @@ def run_loop(runtime: Runtime, knowledge: Knowledge, engines: Engines) -> int:
             if settings.once or settings.dry_run:
                 print(paint.darkgray("Queue is empty."))
                 break
-            print(paint.darkgray(
-                f"[{_clock()}] queue is empty - waiting for new links (clipboard or queue.txt)."
-            ))
+            print(f"{_ts()} {paint.darkgray('queue is empty - waiting for new links (clipboard or queue.txt).')}")
             state.wait_for_change(
                 paths.queue, paths.clip_inbox, max(1, settings.idle_seconds), sleep=pause
             )
@@ -535,15 +539,21 @@ def _start_capture(runtime: Runtime) -> clipboard.Capture | None:
     if settings.dry_run or settings.no_capture:
         return None
     if not clipboard.available():
-        print(paint.yellow(
-            f"[{_clock()}] clipboard capture off: pyperclip is not installed "
+        message = (
+            "clipboard capture off: pyperclip is not installed "
             "(pip install pyperclip, or queue links by hand)."
-        ))
+        )
+        print(f"{_ts()} {paint.yellow(message)}")
         return None
     capture = clipboard.Capture(runtime.paths.clip_inbox)
     capture.start()
-    print(paint.darkgray(f"[{_clock()}] clipboard capture on: copy a URL and it joins the queue."))
+    print(f"{_ts()} {paint.darkgray('clipboard capture on: copy a URL and it joins the queue.')}")
     return capture
+
+
+def _ts() -> str:
+    """The ``[HH:MM:SS]`` terminal prefix, blue."""
+    return paint.blue(f"[{_clock()}]")
 
 
 def _clock() -> str:

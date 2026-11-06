@@ -16,7 +16,10 @@ from pathlib import Path
 
 RESET = "\x1b[0m"
 
-# The four Write-Host names the script used, plus the two greys.
+# The four Write-Host names the script used, plus the two greys. The extra
+# bright entries are what the terminal uses for timestamps (blue) and URL
+# verdicts (light green / light red); standard 31/32 are too dark for a URL
+# that has to stand out from the rest of the line.
 CODES = {
     "cyan": "36",
     "green": "32",
@@ -24,6 +27,9 @@ CODES = {
     "red": "31",
     "gray": "37",
     "darkgray": "90",
+    "blue": "94",
+    "lightgreen": "92",
+    "lightred": "91",
 }
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -154,3 +160,15 @@ def gray(text: str) -> str:
 
 def darkgray(text: str) -> str:
     return paint(text, "darkgray")
+
+
+def blue(text: str) -> str:
+    return paint(text, "blue")
+
+
+def lightgreen(text: str) -> str:
+    return paint(text, "lightgreen")
+
+
+def lightred(text: str) -> str:
+    return paint(text, "lightred")

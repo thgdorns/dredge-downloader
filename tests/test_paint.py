@@ -96,3 +96,11 @@ def test_the_mirror_log_drops_hyperlinks(tmp_path, capsys, monkeypatch):
     log = (paths.logs / "dl8.log").read_text(encoding="utf-8")
     assert "lane 1" in log
     assert "file:///" not in log
+
+
+def test_blue_and_light_url_colours(monkeypatch):
+    monkeypatch.setattr(paint, "enabled", lambda: True)
+
+    assert paint.blue("[12:00:00]") == "\x1b[94m[12:00:00]\x1b[0m"
+    assert paint.lightgreen("https://ok") == "\x1b[92mhttps://ok\x1b[0m"
+    assert paint.lightred("https://bad") == "\x1b[91mhttps://bad\x1b[0m"

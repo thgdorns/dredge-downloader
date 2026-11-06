@@ -628,3 +628,29 @@ def test_a_pause_mid_pass_stops_new_lanes(tmp_path, monkeypatch):
     assert stats.ok_total == 1
     assert records.read_lines(paths.queue) == ["https://example.com/two"]
 
+
+def test_completion_line_colours_the_timestamp_and_url(tmp_path, monkeypatch):
+    paths = Paths(tmp_path)
+    paths.ensure()
+    settings = Settings.load(
+        paths, dest_default=tmp_path / "dest", max_downloads=1,
+        no_capture=True, progress_every_seconds=0,
+    )
+    records.write_lines(paths.queue, [
+        "https://example.com/good",
+        "https://example.com/bad",
+    ])
+    monkeypatch.setattr(orchestrator, "Worker", FakeWorker)
+    monkeypatch.setattr(orchestrator.paint, "enabled", lambda: True)
+
+    messages: list[str] = []
+    run_pass(
+        Runtime(paths, settings), Knowledge({}, SiteRule(host="*"), MirrorTable()),
+        orchestrator.Engines(), out=messages.append,
+    )
+
+    text = "\n".join(messages)
+    assert "\x1b[94m[" in text
+    assert "\x1b[92mhttps://example.com/good\x1b[0m" in text
+    assert "\x1b[91mhttps://example.com/bad\x1b[0m" in text
+

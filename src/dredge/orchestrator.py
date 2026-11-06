@@ -78,6 +78,12 @@ def say(message: str, paths=None) -> None:
         pass
 
 
+def _line(stamp, message: str, color: str = "") -> str:
+    """A terminal line: blue ``[HH:MM:SS]`` then the message in ``color``."""
+    body = paint.paint(message, color) if color else message
+    return f"{paint.blue(f'[{stamp()}]')} {body}"
+
+
 def _fallback(
     runtime: Runtime, settings: Settings, out, stamp
 ) -> Settings:
@@ -93,9 +99,7 @@ def _fallback(
         return settings
     runtime.settings = refreshed
     path = refreshed.destinations[refreshed.default_dest].path
-    out(paint.yellow(
-        f"[{stamp()}] {refreshed.fallback_note} ({path})."
-    ))
+    out(_line(stamp, f"{refreshed.fallback_note} ({path}).", "yellow"))
     return refreshed
 
 
@@ -133,7 +137,7 @@ def run_pass(
 
     captured = drain_clipboard(paths, settings)
     if captured:
-        out(paint.cyan(f"[{stamp()}] clipboard: +{len(captured)} URL(s) queued."))
+        out(_line(stamp, f"clipboard: +{len(captured)} URL(s) queued.", "cyan"))
         urls += captured
 
     if not settings.dry_run and paths.staged_queue.exists():
@@ -144,8 +148,10 @@ def run_pass(
             # the queue shows it while it runs and a restart resumes it.
             records.append_lines(paths.queue, fresh)
             urls += fresh
-            out(paint.darkgray(
-                f"[{stamp()}] {len(fresh)} staged URL(s) from queue-requeue.txt added to this run."
+            out(_line(
+                stamp,
+                f"{len(fresh)} staged URL(s) from queue-requeue.txt added to this run.",
+                "darkgray",
             ))
         try:
             paths.staged_queue.unlink()
@@ -164,8 +170,10 @@ def run_pass(
     if not settings.dry_run:
         runtime.arc_sig = state.archive_signature(paths.archive)
     if merged.total:
-        out(paint.darkgray(
-            f"[{stamp()}] archive: {merged.total} row(s) left pending by the last run were merged."
+        out(_line(
+            stamp,
+            f"archive: {merged.total} row(s) left pending by the last run were merged.",
+            "darkgray",
         ))
 
     plan = build_plan(
@@ -178,11 +186,13 @@ def run_pass(
         retry_failed=settings.retry_failed,
     )
     if plan.unusable:
-        out(paint.yellow(
-            f"[{stamp()}] {plan.unusable} unusable queue line(s) dropped (not an http(s) URL)."
+        out(_line(
+            stamp,
+            f"{plan.unusable} unusable queue line(s) dropped (not an http(s) URL).",
+            "yellow",
         ))
     if plan.skipped:
-        out(paint.darkgray(f"[{stamp()}] {plan.summary()}"))
+        out(_line(stamp, plan.summary(), "darkgray"))
         if not settings.dry_run:
             records.write_lines(paths.queue, plan.urls)
 
@@ -190,20 +200,22 @@ def run_pass(
         plan.urls, settings=settings, knowledge=knowledge
     )
     if primary and secondary:
-        out(paint.darkgray(
-            f"[{stamp()}] {primary} link(s) to the default destination first, "
-            f"then {secondary} to the others."
+        out(_line(
+            stamp,
+            f"{primary} link(s) to the default destination first, "
+            f"then {secondary} to the others.",
+            "darkgray",
         ))
     if not ordered:
         return None
 
     out(paint.cyan("dredge v8 - multi-engine downloader"))
-    out(f"[{stamp()}] {len(ordered)} links queued.")
+    out(_line(stamp, f"{len(ordered)} links queued."))
 
     stats = PassStats(total=len(ordered))
     stats.log = paths.logs / time.strftime("run-%Y%m%d-%H%M%S.log")
     _log_line(stats.log, f"[{stats.started:%Y-%m-%d %H:%M:%S}] dredge run - {len(ordered)} links queued")
-    out(paint.darkgray(f"[{stamp()}] Run log: {stats.log}"))
+    out(_line(stamp, f"Run log: {stats.log}", "darkgray"))
 
     remaining = list(ordered)
     pending = list(range(len(ordered)))
@@ -251,11 +263,11 @@ def run_pass(
                         if 0 <= free < SPACE_STOP_GB:
                             full_dests.add(str(dest_root).lower())
                             message = (
-                                f"[{stamp()}] Stopping: only {free:.0f} GB free on "
+                                f"Stopping: only {free:.0f} GB free on "
                                 f"{dest_root.anchor} ({target.name}) - its links stay queued."
                             )
-                            out(paint.yellow(message))
-                            _log_line(stats.log, message)
+                            out(_line(stamp, message, "yellow"))
+                            _log_line(stats.log, f"[{stamp()}] {message}")
                             refreshed = _fallback(runtime, settings, out, stamp)
                             if refreshed is not settings:
                                 settings = refreshed
@@ -301,7 +313,7 @@ def run_pass(
                 paths, knowledge, ordered, pending, remaining, queued_canon, settings
             )
             if picked:
-                out(paint.cyan(f"[{stamp()}] queue: +{len(picked)} URL(s) picked up."))
+                out(_line(stamp, f"queue: +{len(picked)} URL(s) picked up.", "cyan"))
             now = time.monotonic()
 
             if board:
@@ -339,8 +351,10 @@ def run_pass(
                     extra = "  ".join(part for part in (pct, speed) if part)
                     detail = f"{name}  {extra}" if extra else name
                     lane = active[slot]
-                    out(paint.darkgray(
-                        f"[{stamp()}] {lane.index}/{len(ordered)}: lane {slot}: {detail}"
+                    out(_line(
+                        stamp,
+                        f"{lane.index}/{len(ordered)}: lane {slot}: {detail}",
+                        "darkgray",
                     ))
 
             if not settings.no_capture and not settings.dry_run:
@@ -356,16 +370,20 @@ def run_pass(
                                 remaining.append(url)
                                 ordered.append(url)
                                 pending.append(len(ordered) - 1)
-                        out(paint.cyan(
-                            f"[{stamp()}] clipboard: +{len(added)} URL(s) queued."
+                        out(_line(
+                            stamp,
+                            f"clipboard: +{len(added)} URL(s) queued.",
+                            "cyan",
                         ))
                     if rejected:
                         total = sum(rejected.values())
                         parts = ", ".join(
                             f"{count} {reason}" for reason, count in rejected.items()
                         )
-                        out(paint.darkgray(
-                            f"[{stamp()}] clipboard: {total} URL(s) skipped ({parts})."
+                        out(_line(
+                            stamp,
+                            f"clipboard: {total} URL(s) skipped ({parts}).",
+                            "darkgray",
                         ))
 
             finished = [slot for slot, lane in active.items() if not lane.thread.is_alive()]
@@ -390,7 +408,11 @@ def run_pass(
                             pending_rows = 0
                             pending_since = time.monotonic()
                             if merged_now.total:
-                                out(paint.darkgray(f"[{stamp()}] archive: {merged_now.total} row(s) merged."))
+                                out(_line(
+                                    stamp,
+                                    f"archive: {merged_now.total} row(s) merged.",
+                                    "darkgray",
+                                ))
 
                 if (lane.line or lane.url) in remaining:
                     remaining.remove(lane.line or lane.url)
@@ -435,8 +457,15 @@ def run_pass(
                     paint.link(files, target_uri or folder_uri)
                     if files and (target_uri or folder_uri) else files
                 )
-                out(f"[{stamp()}] {done}/{len(ordered)}: {label}: {verdict}  "
-                    f"{lane.url}{shown}")
+                url_text = (
+                    paint.lightgreen(lane.url)
+                    if verdict.startswith("OK|")
+                    else paint.lightred(lane.url)
+                )
+                out(_line(
+                    stamp,
+                    f"{done}/{len(ordered)}: {label}: {verdict}  {url_text}{shown}",
+                ))
                 if board:
                     board.set_done(
                         slot, lane.index, len(ordered), verdict, files,
@@ -449,7 +478,11 @@ def run_pass(
             )
             runtime.arc_sig = state.archive_signature(paths.archive)
             if merged_end.total:
-                out(paint.darkgray(f"[{stamp()}] archive: {merged_end.total} row(s) merged."))
+                out(_line(
+                    stamp,
+                    f"archive: {merged_end.total} row(s) merged.",
+                    "darkgray",
+                ))
 
     finally:
         if board:
@@ -461,7 +494,7 @@ def run_pass(
         f"[{end:%Y-%m-%d %H:%M:%S}] Finished in {elapsed}. OK={stats.ok_total} "
         f"[{stats.engine_summary()}] FAILED={stats.failed} OFFLINE={stats.offline}",
     )
-    out(paint.green(f"[{stamp()}] Finished."))
+    out(_line(stamp, "Finished.", "green"))
     out(paint.darkgray(f"Run log: {stats.log}"))
     return stats
 
@@ -584,9 +617,11 @@ def _warn_pages(rows: list[str], out, stamp) -> None:
         if len(fields) >= 3 and fields[2]:
             count = len([n for n in fields[2].split(";") if n])
             if count > 8:
-                out(paint.yellow(
-                    f"[{stamp()}] WARNING: one URL produced {count} files (looks like a page "
-                    f"listing, not a single video): {fields[1]}"
+                out(_line(
+                    stamp,
+                    f"WARNING: one URL produced {count} files (looks like a page "
+                    f"listing, not a single video): {fields[1]}",
+                    "yellow",
                 ))
 
 
@@ -767,17 +802,18 @@ def _sleep(
     def toggle() -> None:
         if board:
             board.stop()
+        stamp_text = paint.blue(f"[{time.strftime('%H:%M:%S')}]")
         try:
             try:
                 paused, message = toggle_paused(runtime, knowledge)
             except OSError as exc:
                 say(
-                    paint.red(f"[{time.strftime('%H:%M:%S')}] pause failed: {exc}"),
+                    f"{stamp_text} {paint.red(f'pause failed: {exc}')}",
                     runtime.paths,
                 )
                 return
             color = paint.yellow if paused else paint.green
-            say(color(f"[{time.strftime('%H:%M:%S')}] {message}"), runtime.paths)
+            say(f"{stamp_text} {color(message)}", runtime.paths)
         finally:
             if board:
                 board.start()

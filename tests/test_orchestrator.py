@@ -300,6 +300,12 @@ def test_catch_up_queue_drains_staged_urls(tmp_path):
     assert remaining == ordered
     assert "example.com/c" in queued and "example.com/d" in queued
     assert not paths.staged_queue.exists()
+    # the expanded links stay visible in queue.txt while they run
+    assert records.read_lines(paths.queue) == [
+        "https://example.com/a",
+        "https://example.com/c",
+        "https://example.com/d",
+    ]
 
 
 def test_files_summary_lists_every_name():

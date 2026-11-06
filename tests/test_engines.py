@@ -85,6 +85,17 @@ def test_megatools_progress_gives_filename_percent_and_speed(tmp_path):
     assert speed == "969.8 KiB/s"
 
 
+def test_a_gallery_dl_url_is_shown_whole(tmp_path):
+    log = tmp_path / "lane1.log"
+    log.write_text(
+        "[gallery-dl] https://kemono.cr/patreon/user/15280992\n",
+        encoding="utf-8",
+    )
+    file, pct, speed = lane_status(log)
+    assert file == "https://kemono.cr/patreon/user/15280992"
+    assert (pct, speed) == ("", "")
+
+
 def test_lane_status_tail_reads_the_ends_of_a_big_log(tmp_path):
     log = tmp_path / "lane1.log"
     log.write_text(

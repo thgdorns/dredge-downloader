@@ -497,20 +497,32 @@ def _catch_up_queue(
     edit of queue.txt) can add URLs while lanes are busy. Without this, the
     next completion rewrites queue.txt from ``remaining`` and the new lines
     would be dropped.
+
+    An expanded listing is staged in ``queue-requeue.txt`` by the worker
+    thread, which cannot append to queue.txt while the pass rewrites it. Those
+    lines are moved into queue.txt here, before they are scheduled, so the
+    queue always shows every link this pass is working on and a restart
+    mid-pass resumes them.
     """
     if settings.dry_run:
         return []
-    queue_urls = list(records.read_lines(paths.queue))
-    staged_urls = (
-        read_queue(paths.staged_queue) if paths.staged_queue.exists() else []
-    )
-    if staged_urls:
+    if paths.staged_queue.exists():
+        fresh: list[str] = []
+        seen: set[str] = set()
+        for url in read_queue(paths.staged_queue):
+            keys = knowledge.keys(url)
+            if not keys or any(key in queued_canon or key in seen for key in keys):
+                continue
+            seen.update(keys)
+            fresh.append(url)
+        if fresh:
+            records.append_lines(paths.queue, fresh)
         try:
             paths.staged_queue.unlink()
         except OSError:
             pass
     added: list[str] = []
-    for url in queue_urls + staged_urls:
+    for url in records.read_lines(paths.queue):
         keys = knowledge.keys(url)
         if not keys or any(key in queued_canon for key in keys):
             continue
@@ -519,11 +531,6 @@ def _catch_up_queue(
         pending.append(len(ordered) - 1)
         remaining.append(url)
         added.append(url)
-    # Persist the expanded URLs into queue.txt so they survive a mid-pass kill
-    # and show up where the user expects them.
-    staged_new = [url for url in added if url in set(staged_urls)]
-    if staged_new:
-        records.append_lines(paths.queue, staged_new)
     return added
 
 

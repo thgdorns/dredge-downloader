@@ -325,6 +325,8 @@ def _parse_lane_text(text: str) -> tuple[str, str, str]:
             pct = _percent(downloaded, total) or pct
         speed = _rate(rate)
 
-    if file:
+    if file and not re.match(r"(?i)^https?://", file):
+        # A path or a filename is shown by its last segment; a URL is shown as
+        # the whole URL, so the lane says which post/creator is being worked on.
         file = re.split(r"[\\/]", file)[-1]
     return file, pct, speed

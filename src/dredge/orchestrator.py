@@ -500,8 +500,17 @@ def _catch_up_queue(
     """
     if settings.dry_run:
         return []
+    queue_urls = list(records.read_lines(paths.queue))
+    staged_urls = (
+        read_queue(paths.staged_queue) if paths.staged_queue.exists() else []
+    )
+    if staged_urls:
+        try:
+            paths.staged_queue.unlink()
+        except OSError:
+            pass
     added: list[str] = []
-    for url in records.read_lines(paths.queue):
+    for url in queue_urls + staged_urls:
         keys = knowledge.keys(url)
         if not keys or any(key in queued_canon for key in keys):
             continue
@@ -510,6 +519,11 @@ def _catch_up_queue(
         pending.append(len(ordered) - 1)
         remaining.append(url)
         added.append(url)
+    # Persist the expanded URLs into queue.txt so they survive a mid-pass kill
+    # and show up where the user expects them.
+    staged_new = [url for url in added if url in set(staged_urls)]
+    if staged_new:
+        records.append_lines(paths.queue, staged_new)
     return added
 
 

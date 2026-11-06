@@ -273,6 +273,35 @@ def test_catch_up_queue_adds_a_line_written_during_a_pass(tmp_path):
     ) == []
 
 
+def test_catch_up_queue_drains_staged_urls(tmp_path):
+    paths = Paths(tmp_path)
+    settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
+    records.write_lines(paths.queue, ["https://example.com/a"])
+    records.write_lines(paths.staged_queue, [
+        "https://example.com/c",
+        "https://example.com/d",
+    ])
+    knowledge = Knowledge({}, SiteRule(host="*"), MirrorTable())
+    ordered = ["https://example.com/a"]
+    pending = [0]
+    remaining = ["https://example.com/a"]
+    queued = {"example.com/a"}
+
+    added = _catch_up_queue(
+        paths, knowledge, ordered, pending, remaining, queued, settings
+    )
+
+    assert added == ["https://example.com/c", "https://example.com/d"]
+    assert ordered == [
+        "https://example.com/a",
+        "https://example.com/c",
+        "https://example.com/d",
+    ]
+    assert remaining == ordered
+    assert "example.com/c" in queued and "example.com/d" in queued
+    assert not paths.staged_queue.exists()
+
+
 def test_files_summary_lists_every_name():
     rows = [
         "2026-01-01 00:00:00\turl:1\ta.mp4;b.mp4\t1;2",

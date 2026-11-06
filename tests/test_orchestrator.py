@@ -150,6 +150,37 @@ def test_a_pass_records_success_and_failure(tmp_path, monkeypatch):
     assert "2/2: lane 1: FAILED  https://example.com/bad" in text
 
 
+def test_staged_links_land_in_queue_txt(tmp_path, monkeypatch):
+    paths = Paths(tmp_path)
+    paths.ensure()
+    settings = Settings.load(
+        paths, dest_default=tmp_path / "dest", max_downloads=1,
+        no_capture=True, progress_every_seconds=0,
+    )
+    records.write_lines(paths.queue, ["https://example.com/a"])
+    records.write_lines(paths.staged_queue, ["https://example.com/c"])
+    seen: list[list[str]] = []
+
+    class WatchingWorker(FakeWorker):
+        def download(self, url, **kwargs):
+            seen.append(records.read_lines(paths.queue))
+            return super().download(url, **kwargs)
+
+    monkeypatch.setattr(orchestrator, "Worker", WatchingWorker)
+    runtime = Runtime(paths, settings)
+    stats = run_pass(
+        runtime, Knowledge({}, SiteRule(host="*"), MirrorTable()),
+        orchestrator.Engines(), out=lambda message: None,
+    )
+
+    assert stats is not None
+    assert seen == [
+        ["https://example.com/a", "https://example.com/c"],
+        ["https://example.com/c"],
+    ]
+    assert not paths.staged_queue.exists()
+
+
 class FakeBoard:
     def __init__(self) -> None:
         self.started = 0

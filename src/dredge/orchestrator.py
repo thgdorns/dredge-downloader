@@ -117,10 +117,14 @@ def run_pass(
 
     if not settings.dry_run and paths.staged_queue.exists():
         staged = read_queue(paths.staged_queue)
-        if staged:
-            urls += staged
+        fresh = [url for url in staged if url not in urls]
+        if fresh:
+            # An expanded listing belongs in queue.txt like any other link, so
+            # the queue shows it while it runs and a restart resumes it.
+            records.append_lines(paths.queue, fresh)
+            urls += fresh
             out(paint.darkgray(
-                f"[{stamp()}] {len(staged)} staged URL(s) from queue-requeue.txt added to this run."
+                f"[{stamp()}] {len(fresh)} staged URL(s) from queue-requeue.txt added to this run."
             ))
         try:
             paths.staged_queue.unlink()

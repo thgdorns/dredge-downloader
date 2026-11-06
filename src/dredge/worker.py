@@ -293,6 +293,12 @@ class Worker:
             extractor_file.unlink()
         except OSError:
             pass
+        # The path the engine is about to write, published for the lane link.
+        target_file = self.paths.lane_target(slot)
+        try:
+            target_file.unlink()
+        except OSError:
+            pass
         blocked = False
 
         # engine= in sites.txt names one engine for the host and nothing else:
@@ -309,7 +315,7 @@ class Worker:
         if self.engines.gdl and (not pinned or pin_gdl):
             gallery = self._gallery_tier(
                 url, dl, final_dest, flat, folder, dl_rule, playlist,
-                files_manifest, sim, ignore, archive, sig0, dry,
+                files_manifest, sim, ignore, archive, sig0, dry, target_file,
             )
             engine = gallery.engine
             page_ids = gallery.page_ids
@@ -340,6 +346,13 @@ class Worker:
         else:
             common3 = ["-P", str(final_dest), "-o", self.settings.tpl_generic]
         manifest_args = ["--print-to-file", "after_move:filepath", str(files_manifest)]
+        # Before the bytes start, yt-dlp knows the final path (outtmpl applied),
+        # so the lane line can link at the folder the file is really going into -
+        # the creator subfolder included - instead of the destination root.
+        target_args = (
+            ["--print-to-file", "before_dl:%(filename)s", str(target_file)]
+            if not dry else []
+        )
         progress_args = [
             "--newline", "--progress", "--progress-template",
             ("download:dredge-yt %(progress.downloaded_bytes)s "
@@ -359,7 +372,7 @@ class Worker:
             rc, _ = run(
                 [self.engines.yt, "--ignore-config", "--config-locations",
                  str(self.paths.ytdlp_conf), *yt_args, *site_yt, *ignore_args,
-                 *refresh_args, *common, *manifest_args, *progress_args,
+                 *refresh_args, *common, *manifest_args, *target_args, *progress_args,
                  *extractor_args, *sim, dl],
                 cwd=self.paths.root, sink=self._sink,
             )
@@ -382,8 +395,8 @@ class Worker:
             rc, _ = run(
                 [self.engines.yt, "--ignore-config", "--config-locations",
                  str(self.paths.ytdlp_conf), "--downloader", "native", *site_yt,
-                 *ignore_args, *refresh_args, *common, *manifest_args, *progress_args,
-                 *extractor_args, dl],
+                 *ignore_args, *refresh_args, *common, *manifest_args, *target_args,
+                 *progress_args, *extractor_args, dl],
                 cwd=self.paths.root, sink=self._sink,
             )
             if rc == 0 and produced(final_dest, sig1, self.text, False):
@@ -415,7 +428,7 @@ class Worker:
             rc, _ = run(
                 [self.engines.yt, "--ignore-config", "--config-locations",
                  str(self.paths.ytdlp_generic_conf), *ignore_args, *refresh_args,
-                 *site_yt, *common3, *manifest_args, *progress_args,
+                 *site_yt, *common3, *manifest_args, *target_args, *progress_args,
                  *extractor_args, *sim, dl],
                 cwd=self.paths.root, sink=self._sink,
             )
@@ -489,13 +502,14 @@ class Worker:
         archive: str | Path | None,
         sig: str,
         dry: bool,
+        target_file: Path | None = None,
     ) -> GalleryResult:
         """One gallery-dl attempt; used first or as the yt-dlp fallback."""
         result = GalleryResult()
         self._lane(f"[gallery-dl] {url}")
         args = self._gdl_args(
             dl, final_dest, flat or bool(folder), dl_rule, playlist,
-            files_manifest, sim, ignore,
+            files_manifest, sim, ignore, target_file,
         )
         if playlist and archive:
             result.pages_manifest = Path(str(archive) + ".pages")
@@ -569,6 +583,7 @@ class Worker:
         files_manifest: Path,
         sim: list[str],
         ignore: bool,
+        target_file: Path | None = None,
     ) -> list[str]:
         args = ["--config-ignore", "-c", str(self.paths.gallery_conf)]
         if self.paths.gallery_runtime.exists():
@@ -583,6 +598,11 @@ class Worker:
                 args += ["-o", f"directory={author}"]
         if files_manifest:
             args += ["--Print-to-file", "after:{_path}", str(files_manifest)]
+        if target_file and not sim:
+            # prepare-after: the target path exists but nothing was fetched yet
+            args += [
+                "--Print-to-file", "prepare-after:{_path}", str(target_file),
+            ]
         if ignore:
             temp = Path(_temp_archive())
             self._temps.append(temp)

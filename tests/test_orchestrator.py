@@ -391,3 +391,27 @@ def test_a_finished_line_links_the_file_and_the_folder(tmp_path, monkeypatch):
     assert paint_module.link("lane 1", creator) in text
     assert paint_module.link("  -> clip.mp4", clip) in text
 
+
+def test_a_running_lane_links_the_folder_the_file_goes_to(tmp_path):
+    from dredge import paint as paint_module
+
+    paths = Paths(tmp_path)
+    paths.ensure()
+    root = tmp_path / "dest"
+    creator = root / "creator"
+    paths.lane_dest(1).write_text(str(root), encoding="utf-8")
+    paths.lane_target(1).write_text(str(creator / "clip.mp4"), encoding="utf-8")
+
+    assert orchestrator._lane_folder_uri(paths, 1) == paint_module.file_uri(creator)
+
+
+def test_without_a_target_the_lane_links_its_destination(tmp_path):
+    from dredge import paint as paint_module
+
+    paths = Paths(tmp_path)
+    paths.ensure()
+    root = tmp_path / "dest"
+    paths.lane_dest(1).write_text(str(root), encoding="utf-8")
+
+    assert orchestrator._lane_folder_uri(paths, 1) == paint_module.file_uri(root)
+

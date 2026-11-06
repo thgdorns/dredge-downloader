@@ -194,7 +194,6 @@ def run_pass(
     full_dests: set[str] = set()
     progress_at = time.monotonic()
     progress_last: dict[int, tuple[str, bool]] = {}
-    dest_uri: dict[int, str] = {}
     queued_canon = {key for u in ordered for key in knowledge.keys(u)}
 
     board = _make_board(out)
@@ -273,10 +272,7 @@ def run_pass(
                 for slot in sorted(active):
                     name, pct, speed = lane_status_tail(paths.lane_log(slot))
                     lane = active[slot]
-                    if not dest_uri.get(slot):
-                        here = _read_dest(paths.lane_dest(slot))
-                        dest_uri[slot] = paint.file_uri(here) if here else ""
-                    folder = dest_uri.get(slot, "")
+                    folder = _lane_folder_uri(paths, slot)
                     if name:
                         board.set_progress(
                             slot, lane.index, len(ordered), name, pct, speed,
@@ -387,8 +383,10 @@ def run_pass(
                 # opens the folder it landed in.
                 made = _lane_files(paths.lane_files(slot))
                 target_uri = paint.file_uri(made[0]) if len(made) == 1 else ""
-                folder_uri = paint.file_uri(made[0].parent) if made else dest_uri.pop(slot, "")
-                dest_uri.pop(slot, None)
+                folder_uri = (
+                    paint.file_uri(made[0].parent) if made
+                    else _lane_folder_uri(paths, slot)
+                )
                 detail = f"{verdict}  {lane.url}{files}"
                 _log_line(stats.log, f"[{stamp()}] {detail}")
                 label = (
@@ -502,13 +500,29 @@ def _lane_files(path: Path) -> list[Path]:
     return [Path(line.strip()) for line in lines if line.strip()]
 
 
-def _read_dest(path: Path) -> Path | None:
-    """The folder the lane published for its current URL."""
+def _read_path(path: Path) -> Path | None:
+    """A path a lane published (its destination folder or its current target)."""
     try:
         text = path.read_text(encoding="utf-8", errors="replace").strip()
     except OSError:
         return None
     return Path(text) if text else None
+
+
+def _lane_folder_uri(paths: Paths, slot: int) -> str:
+    """Folder link for a running lane: the file's own folder, else the root.
+
+    laneN.target holds the path the engine is about to write, so it already
+    carries the creator subfolder the output template adds. laneN.dest is only
+    the destination root, and is used until that path is known.
+    """
+    target = _read_path(paths.lane_target(slot))
+    if target is not None:
+        folder = paint.file_uri(target.parent)
+        if folder:
+            return folder
+    here = _read_path(paths.lane_dest(slot))
+    return paint.file_uri(here) if here else ""
 
 
 def _warn_pages(rows: list[str], out, stamp) -> None:

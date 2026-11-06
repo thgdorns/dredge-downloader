@@ -28,7 +28,10 @@ def make_runner(behaviour: dict[str, dict]):
         for index, arg in enumerate(args):
             if arg in ("--Print-to-file", "--print-to-file") and index + 2 < len(args):
                 template = str(args[index + 1])
-                if "_path" in template or "filepath" in template:
+                # after_move:filepath / after:{_path} is the "what was written"
+                # manifest; before_dl/prepare-after is the lane's target path and
+                # after_move:extractor belongs to the extractor file
+                if template.startswith(("after_move:filepath", "after:{_path}")):
                     manifest = Path(args[index + 2])
         names = spec.get("files") or ([spec["file"]] if spec.get("file") else [])
         saved: list[str] = []

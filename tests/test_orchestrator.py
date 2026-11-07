@@ -271,6 +271,51 @@ def test_the_page_listing_setting_is_read_from_the_config_file(tmp_path):
     assert Settings.load(paths).warn_page_listing == "off"
 
 
+def test_one_quota_answer_parks_the_whole_host(tmp_path, monkeypatch):
+    """MEGA's quota is per IP, so one 509 means the rest would fail too.
+
+    The pass must stop dispatching that host instead of burning every link into
+    fail.txt, and leave them queued for when the window ends.
+    """
+    seen: list[str] = []
+
+    class QuotaWorker:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def download(self, url, *, result, **kwargs):
+            seen.append(url)
+            Path(result).write_text("QUOTA|mega.nz", encoding="utf-8")
+            paths.paused.touch()      # ends the pass so the test can finish
+            return "QUOTA|mega.nz"
+
+    paths = Paths(tmp_path)
+    paths.ensure()
+    settings = Settings.load(
+        paths, dest_default=tmp_path / "dest", max_downloads=1,
+        no_capture=True, progress_every_seconds=0,
+    )
+    records.write_lines(paths.queue, [
+        "https://mega.nz/file/first#key",
+        "https://mega.nz/file/second#key",
+    ])
+    monkeypatch.setattr(orchestrator, "Worker", QuotaWorker)
+    monkeypatch.setattr(orchestrator, "_make_board", lambda out: None)
+
+    messages: list[str] = []
+    run_pass(
+        Runtime(paths, settings),
+        Knowledge({}, SiteRule(host="*"), MirrorTable()),
+        orchestrator.Engines(), out=messages.append,
+    )
+
+    assert seen == ["https://mega.nz/file/first#key"]    # the second never ran
+    assert any("out of quota" in message for message in messages)
+    assert "file/second" in paths.queue.read_text(encoding="utf-8")
+    assert "file/first" in paths.fail.read_text(encoding="utf-8")
+    paths.paused.unlink(missing_ok=True)
+
+
 def test_zero_lanes_are_clamped_to_one(tmp_path):
     settings = Settings.load(Paths(tmp_path), max_downloads=0)
     runtime = Runtime(Paths(tmp_path), settings)

@@ -1,4 +1,4 @@
-import os
+﻿import os
 from pathlib import Path
 
 import dredge.worker as worker_module
@@ -137,7 +137,7 @@ def test_a_blocked_mega_ip_fails_fast_and_says_so(tmp_path, monkeypatch):
         archive=tmp_path / 'lane1.archive',
     )
 
-    assert verdict == 'FAILED'
+    assert verdict == 'QUOTA|mega.nz'
     assert stops == [worker_module._QUOTA_STOP]
     assert re.search(worker_module._QUOTA_STOP, 'Server returned error EBLOCKED')
     log = (tmp_path / 'lane1.log').read_text(encoding='utf-8')
@@ -532,7 +532,7 @@ def test_a_killed_mega_download_keeps_its_partial_file(tmp_path, monkeypatch):
         archive=tmp_path / 'lane1.archive',
     )
 
-    assert verdict == 'FAILED'
+    assert verdict == 'QUOTA|mega.nz'
     assert (tmp_path / 'dest' / '.megatmp.ABC123').exists()
     log = (tmp_path / 'lane1.log').read_text(encoding='utf-8')
     assert 'partial data kept' in log
@@ -1106,4 +1106,5 @@ def test_gdown_without_a_cookie_file_asks_for_none(tmp_path, monkeypatch):
     )
 
     assert "--no-cookies" in calls[0]
+
 

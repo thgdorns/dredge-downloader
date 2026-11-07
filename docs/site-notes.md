@@ -93,7 +93,14 @@ engines see it).
   destination folder.
 - **Transfer quota is per IP and resets**: megatools sleeps for minutes per
   chunk after a 509, which would hold a lane. The worker stops the process and
-  records `FAILED`, so a later run retries. Partial data stays in
+  records `FAILED`, so a later run retries.
+- **One quota answer parks the whole host in that pass.** The quota belongs to
+  the IP, so the remaining MEGA links cannot succeed either; the pass records
+  the failing link, then skips the host until `quota_block_minutes` (default
+  60) have passed, saying so once. The parked links stay in queue.txt rather
+  than being written to fail.txt one by one, and the pass idles instead of
+  re-dispatching them until the window ends. `EBLOCKED` counts as the same
+  thing. Partial data stays in
   `.megatmp.<id>` files and resumes.
 
 ## MediaFire - mediafire.com

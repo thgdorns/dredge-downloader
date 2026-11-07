@@ -29,7 +29,7 @@ from .destinations import destination_for, filehost_folder
 from .engines import Engines, dir_signature, probe_down, produced, run
 from .mega import folder_name as mega_folder_name
 from .sites import SiteRule
-from .urls import Knowledge, Playlist, resolve_short_url
+from .urls import Knowledge, Playlist, host, resolve_short_url
 
 _PATH_CHARS = r'[^\r\n"<>|]+'
 _SKIP_LINE = re.compile(r"(?m)^#\s+(.+?)\s*$")
@@ -196,6 +196,7 @@ class Worker:
         self._url = ""
         self._temps: list[Path] = []
         self._drive_names: dict[str, str] = {}
+        self._quota_host = ""
         self._extractor = ""
 
     # -- logging ---------------------------------------------------------
@@ -263,6 +264,7 @@ class Worker:
         resolved = resolve_short_url(url, self.shorteners)
         if resolved != url:
             self._lane(f"[redirect] {url} -> {resolved}")
+        self._quota_host = ""      # set when the engine says the IP is out of quota
 
         if dest is None:
             target = destination_for(resolved, self.knowledge, self.settings)
@@ -376,6 +378,9 @@ class Worker:
         # --- tier 1f: file-host engines ---------------------------------
         if not engine and not dry and pin_filehost:
             engine = self._filehost_engine(dl, final_dest, dl_rule, files_manifest)
+            if engine is None and self._quota_host:
+                # Host-wide: the quota is per IP, so one answer condemns them all.
+                return self._finish(f"QUOTA|{self._quota_host}", result)
 
         # --- tiers 2-3: yt-dlp ------------------------------------------
         # dest_tpl wins over the site rule: it is either the destination's own
@@ -831,8 +836,11 @@ class Worker:
                     f"[{name}] MEGA blocked this IP - the links are fine, retry "
                     "after the block lifts (hours, not minutes)"
                 )
-            if re.search(
-                r"(?i)too many users have viewed|download quota|quota exceeded"
+            if re.search(_QUOTA_STOP, out):
+                # The quota is per IP, so this answer applies to every link on
+                # the host, not just this one: the pass parks the rest.
+                self._quota_host = host(dl)
+            if re.search(r"(?i)too many users have viewed|download quota|quota exceeded"
                 r"|cannot retrieve the public link|many accesses",
                 out,
             ):

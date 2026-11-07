@@ -159,6 +159,10 @@ resumes them.
 page listing)" warning. A pixiv gallery legitimately writes a dozen files for
 one URL.
 
+`quota_block_minutes = 60` parks a host for that long after it answers
+"out of quota" (MEGA's 509/EBLOCKED are per IP): the failing link is recorded,
+the rest stay queued instead of failing one after another.
+
 Probe mode runs until **Esc** (or Ctrl+C) and leaves the queue paused so the
 list can be pruned first; it ends by resuming the downloads. With a piped
 stdin it drains `state/clip-inbox.txt` once and exits, which is what the tests

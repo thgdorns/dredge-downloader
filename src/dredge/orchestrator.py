@@ -257,6 +257,7 @@ def run_pass(
     space_checked: dict[str, float] = {}
     full_dests: set[str] = set()
     auth_tried: set[str] = set()
+    quota_until: dict[str, float] = {}
     # The lane-start check below only runs when a link is dispatched. A pass
     # whose links were all dispatched while the disk had room fills it and then
     # sits with nothing pending, so the check never fires again: the pass hangs
@@ -275,6 +276,15 @@ def run_pass(
         while pending or active:
             if paths.paused.exists() and not active:
                 break           # leave the rest in queue.txt
+            if quota_until:
+                now_quota = time.time()
+                for name in [h for h, until in quota_until.items() if until <= now_quota]:
+                    del quota_until[name]
+                    out(_line(
+                        stamp,
+                        f"{name}: quota window over - trying its links again.",
+                        "green",
+                    ))
             if not settings.dry_run and dest_roots:
                 now_space = time.monotonic()
                 if now_space - space_at >= SPACE_RECHECK_SECONDS:
@@ -300,10 +310,11 @@ def run_pass(
                             full_dests.clear()
                             space_checked.clear()
                             dest_roots.clear()
+            queued_before = len(pending)
             while len(active) < runtime.max_downloads and pending:
                 if paths.paused.exists():
                     break       # let running lanes finish, start nothing new
-                index = _take_next(pending, ordered, active, knowledge)
+                index = _take_next(pending, ordered, active, knowledge, quota_until)
                 if index < 0:
                     break
                 line = ordered[index]
@@ -373,6 +384,13 @@ def run_pass(
                 thread.start()
                 if board:
                     board.set_url(slot, index + 1, len(ordered), url)
+
+            if pending and not active and len(pending) == queued_before and quota_until:
+                # Everything left belongs to a host parked for its quota window:
+                # idle until the earliest one expires instead of re-dispatching
+                # twice a second for the whole window.
+                left = min(quota_until.values()) - time.time()
+                _sleep(max(1.0, min(30.0, left)), runtime, knowledge, board)
 
             _sleep(0.5, runtime, knowledge, board)
             picked = _catch_up_queue(
@@ -524,6 +542,25 @@ def run_pass(
                     records.append_lines(paths.fail, [record_line])
                     stats.failed += 1
                     _mark_failed(runtime, knowledge, lane.url)
+                elif verdict.startswith("QUOTA|"):
+                    # The quota is per IP, so one answer applies to every link on
+                    # the host. Park them for the window instead of failing each.
+                    blocked = verdict[6:]
+                    records.append_lines(paths.fail, [record_line])
+                    stats.failed += 1
+                    _mark_failed(runtime, knowledge, lane.url)
+                    if settings.quota_block_minutes > 0:
+                        until = time.time() + settings.quota_block_minutes * 60
+                        quota_until[blocked] = max(
+                            quota_until.get(blocked, 0.0), until
+                        )
+                        out(_line(
+                            stamp,
+                            f"{blocked}: out of quota - its links wait until "
+                            f"{time.strftime('%H:%M', time.localtime(until))} "
+                            f"(quota_block_minutes = {settings.quota_block_minutes}).",
+                            "yellow",
+                        ))
                 elif verdict == "OFFLINE":
                     records.append_lines(paths.offline, [record_line])
                     stats.offline += 1
@@ -878,15 +915,20 @@ def _take_next(
     urls: list[str],
     active: dict[int, Lane],
     knowledge: Knowledge,
+    blocked: dict[str, float] | None = None,
 ) -> int:
     busy = {
         host(lane.url)
         for lane in active.values()
         if _serial(lane.url, knowledge)
     }
+    now = time.time()
     for pos, index in enumerate(pending):
-        if host(split_line(urls[index])[0]) in busy:
+        name = host(split_line(urls[index])[0])
+        if name in busy:
             continue
+        if blocked and blocked.get(name, 0.0) > now:
+            continue        # its quota window is still open
         pending.pop(pos)
         return index
     return -1

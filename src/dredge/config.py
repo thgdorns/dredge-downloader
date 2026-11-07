@@ -297,6 +297,9 @@ class Settings:
     # "WARNING: one URL produced N files (looks like a page listing)". A pixiv
     # gallery legitimately does this, so it can be turned off.
     warn_page_listing: str = "on"
+    # After a host answers "out of quota" (MEGA's 509/EBLOCKED are per IP), the
+    # rest of its links wait this many minutes instead of failing one by one.
+    quota_block_minutes: int = 60
     # An engine that prints nothing for this long is killed: megatools and
     # friends can sit silently for minutes and hold a lane forever.
     stall_seconds: int = 30
@@ -371,6 +374,7 @@ def _read_conf(path: Path) -> tuple[dict[str, object], dict[str, dict[str, str]]
         "cookies_browser": str,
         "idle_seconds": int, "progress_every_seconds": int,
         "stall_seconds": int, "warn_page_listing": str,
+        "quota_block_minutes": int,
         "fold_batch_rows": int, "fold_batch_seconds": int,
     }
     out: dict[str, object] = {}

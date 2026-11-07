@@ -133,6 +133,21 @@ def test_an_empty_or_dot_destination_is_none(tmp_path):
     assert destination_override("..", tmp_path) is None
 
 
+def test_a_url_in_the_tab_slot_is_not_a_destination(tmp_path):
+    """A copied two-column row can put the URL in the destination slot.
+
+    Taken literally it becomes <dest>/https_/n.sfw.video/video/<id>/<slug>/,
+    which buries the files in nested folders that spell out the address.
+    """
+    assert destination_override(
+        "https://n.sfw.video/video/281/sakamata-chloe-hakui-koyori-mesmerizer",
+        tmp_path,
+    ) is None
+    assert destination_override("http://example.com/gallery", tmp_path) is None
+    # a folder that merely mentions a URL is still a folder
+    assert destination_override("https_copy", tmp_path) == tmp_path / "https_copy"
+
+
 def fallback_settings(tmp_path, **overrides):
     settings = Settings.load(Paths(tmp_path))
     values = {

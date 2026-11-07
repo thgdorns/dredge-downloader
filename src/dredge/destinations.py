@@ -124,6 +124,14 @@ def destination_override(spec: str, base: Path) -> Path | None:
     text = spec.strip().strip("\"'").strip()
     if not text:
         return None
+    # A URL in the tab slot is not a destination. Copying a two-column list
+    # where the second column is the URL again used to build
+    # <dest>/https_/n.sfw.video/video/<id>/<slug>/ instead of the site folder,
+    # scattering files into nested folders that look like the address. A URL
+    # can never name a destination here, so ignore the suffix and let the rule
+    # decide.
+    if "://" in text:
+        return None
     candidate = Path(text).expanduser()
     if candidate.is_absolute():
         return candidate

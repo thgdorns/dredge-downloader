@@ -111,6 +111,39 @@ def test_a_missing_token_without_an_oauth_rule_is_a_plain_failure(
     assert verdict == "FAILED"
 
 
+def test_a_blocked_mega_ip_fails_fast_and_says_so(tmp_path, monkeypatch):
+    """EBLOCKED makes megatools sleep for minutes; the lane must stop instead."""
+    import re
+
+    rule = parse_rule('mega.nz engine=megadl')
+    paths = Paths(tmp_path)
+    settings = Settings.load(paths, dest_default=tmp_path / 'dest', dry_run=False)
+    stops: list[str | None] = []
+
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+        stops.append(stop_on)
+        return 1, (
+            "ERROR: Download failed for 'https://mega.nz/file/x#y': API call "
+            "'g' failed: Server returned error EBLOCKED"
+        )
+
+    monkeypatch.setattr(worker_module, 'run', fake)
+    worker = Worker(paths, settings, Engines(megadl='megatools'), knowledge(rule))
+    verdict = worker.download(
+        'https://mega.nz/file/x#y',
+        dest=tmp_path / 'dest',
+        lane_log=tmp_path / 'lane1.log',
+        result=tmp_path / 'lane1.result',
+        archive=tmp_path / 'lane1.archive',
+    )
+
+    assert verdict == 'FAILED'
+    assert stops == [worker_module._QUOTA_STOP]
+    assert re.search(worker_module._QUOTA_STOP, 'Server returned error EBLOCKED')
+    log = (tmp_path / 'lane1.log').read_text(encoding='utf-8')
+    assert 'blocked this IP' in log
+
+
 def test_gallery_dl_success_writes_a_row(tmp_path, monkeypatch):
     verdict, root = run(tmp_path, monkeypatch, {"gdl": {"rc": 0, "file": "clip.mp4"}})
 

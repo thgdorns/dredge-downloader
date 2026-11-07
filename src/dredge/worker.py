@@ -35,7 +35,10 @@ _SKIP_LINE = re.compile(r"(?m)^#\s+(.+?)\s*$")
 # Conditions an engine retries forever instead of failing. megatools sleeps for
 # minutes per chunk on a MEGA "509 over quota", so the lane would stay busy
 # until the quota resets; kill it and let the URL go to fail.txt instead.
-_QUOTA_STOP = r"(?i)(?:server returned 509|over ?quota|transfer quota|quota exceeded)"
+_QUOTA_STOP = (
+    r"(?i)(?:server returned 509|over ?quota|transfer quota|quota exceeded"
+    r"|EBLOCKED)"
+)
 
 
 @dataclass(frozen=True)
@@ -783,6 +786,14 @@ class Worker:
                 self._lane(f"[{name}] partial data kept - the next run resumes it")
             if re.search(r"(?i)over ?quota|transfer quota|quota exceeded", out):
                 self._lane(f"[{name}] MEGA transfer quota for this IP is spent - retry on a later run")
+            if re.search(r"(?i)EBLOCKED|IP (?:is )?blocked", out):
+                # megatools answers EBLOCKED by sleeping for minutes per chunk,
+                # so the lane hangs instead of failing. _QUOTA_STOP kills it on
+                # sight; say why, because the link is fine.
+                self._lane(
+                    f"[{name}] MEGA blocked this IP - the links are fine, retry "
+                    "after the block lifts (hours, not minutes)"
+                )
             if re.search(
                 r"(?i)too many users have viewed|download quota|quota exceeded"
                 r"|cannot retrieve the public link|many accesses",

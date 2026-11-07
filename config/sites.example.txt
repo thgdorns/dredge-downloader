@@ -54,3 +54,7 @@ youtube.com            keep=all  min=0  key=v  also=youtu.be  native
 # (up to 16 concurrent connections), and nndownload warns that multiple
 # sessions on one connection get temporary blocks or throttling.
 nicovideo.jp           keep=all  min=0  engine=yt-dlp  also=nico.ms  id=[a-z]{2}\d+  serial  yt=--write-description
+# n.sfw.video is handled by yt-dlp's generic tier (no dedicated extractor).
+# --write-description keeps the post text; -S res avoids the LQ rendition,
+# which the generic extractor marks quality=1, so every video lands as 1080p.
+n.sfw.video            keep=all  min=0  tpl=n.sfw.video/%(title).200s.%(ext)s  id=[0-9]+  yt=--write-description,-S,res  rewrite=^(https?://(?:www\.)?n\.sfw\.video/video/[^/?#]+/[^/?#]+)$=>\1/

@@ -179,6 +179,24 @@ engines see it).
   fragments of the single active video. If that ever proves too much, a
   per-host `yt=-N,2` is the next step; aria2c is not involved either way.
 
+## n.sfw.video
+
+- **Generic yt-dlp tier only.** There is no dedicated yt-dlp or gallery-dl
+  extractor; the generic tier reads the page and exposes 480p/720p/1080p MP4
+  plus the full description. There is no `engine=` pin, because a pin skips the
+  generic tier and the dedicated tier has no extractor for this host.
+- `--write-description` writes `<site>/<title>.description`, and `tpl=` puts
+  every video in `n.sfw.video/`.
+- **`-S res` is required.** The generic extractor marks the LQ rendition
+  `quality=1`; yt-dlp's default `b` then picks LQ. Sorting by resolution picks
+  1080p (480/720/1080 carry real heights).
+- **The author is not exposed to the engine.** The page has a `block-user`
+  block linking to `/members/<id>/` (for example `ratzy`), but the generic
+  extractor leaves `uploader` empty. Videos stay in `n.sfw.video/`; when a
+  dedicated extractor exposes the uploader, add `%(uploader)s/` to the template
+  and move the existing files. `workarounds.json` → `nsfw-video-generic`
+  watches for that extractor.
+
 ## SpankBang
 
 - The extractor reports the video id as the title (`41aiv`), so files were named

@@ -2,3 +2,4 @@
 # One host per line; subdomains of a listed host are allowed.
 # Example:
 # example.com
+n.sfw.video

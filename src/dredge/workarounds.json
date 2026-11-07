@@ -121,6 +121,26 @@
           "last_verified": "2026-11-04"
         }
       ]
+    },
+    {
+      "id": "nsfw-video-generic",
+      "title": "n.sfw.video uses yt-dlp's generic extractor; the description works but the uploader is not exposed",
+      "engine": "yt-dlp",
+      "added": "2026-11-06",
+      "where": [
+        "config/sites.txt:n.sfw.video",
+        "config/generic-sites.txt"
+      ],
+      "retire_when": "yt-dlp has a dedicated n.sfw.video extractor that exposes the uploader; add %(uploader)s to the template then",
+      "issue": "",
+      "checks": [
+        {
+          "kind": "extractor",
+          "engine": "yt-dlp",
+          "url": "https://n.sfw.video/video/1487/happy-halloween-2026/",
+          "expect_not": "generic"
+        }
+      ]
     }
   ],
   "reports": [

@@ -228,7 +228,13 @@ example.com   keep=all min=0 id=[0-9]{6,} native list=^/(?:profile/[^/]+|videos)
 
 `keep=`, `min=`, `id=`, `also=`, `serial`, `native`, `probe=`, `gdl=`, `key=`,
 `playlist=`, `postid=`, `posturl=`, `itemurl=`, `tpl=`, `folder=`, `cookiedrop=`,
-`engine=`, `author=`, `list=`, `dest=`, `rewrite=`, `yt=`. The example file documents each one.
+`engine=`, `author=`, `list=`, `dest=`, `rewrite=`, `yt=`, `oauth=`. The example file documents each one.
+
+`oauth=SITE` marks a gallery-dl host that needs a login token. When a link on
+that host comes back asking for one, the pass runs `gallery-dl oauth:SITE` in
+the console (it prints a URL, then asks for a code from the browser) and retries
+the link. gallery-dl caches the token, so this happens once. The pixiv rule uses
+it.
 
 `yt=ARGS` passes extra yt-dlp arguments for a host (comma-separated), for
 example `yt=--write-description`. The iwara rule uses that; the kemono,

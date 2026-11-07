@@ -51,6 +51,7 @@ class GalleryResult:
     page_ids: list[str] = field(default_factory=list)
     pages_manifest: Path | None = None
     handled: bool = False
+    auth: str = ""
 
 
 def _now() -> str:
@@ -329,6 +330,8 @@ class Worker:
             engine = gallery.engine
             page_ids = gallery.page_ids
             gdl_handled = gallery.handled
+            if gallery.auth:
+                return self._finish(f"AUTH|{gallery.auth}", result)
 
         # --- tier 1f: file-host engines ---------------------------------
         if not engine and not dry and pin_filehost:
@@ -533,6 +536,18 @@ class Worker:
         if ignore:
             self._auto_rename(args, files_manifest)
         out = self.text
+        if dl_rule and dl_rule.oauth and re.search(
+            r"(?i)AuthenticationError|refresh.?token'?.? required", out
+        ):
+            # The site is pinned to gallery-dl and it has no token yet. The pass
+            # runs the login flow once and retries the link, so a fresh install
+            # authorises itself instead of failing every link it sees.
+            self._lane(
+                f"[gallery-dl] {dl_rule.oauth} needs authorization - "
+                "the pass will run its login flow"
+            )
+            result.auth = dl_rule.oauth
+            return result
         unsupported = bool(re.search(r"Unsupported URL|is not a valid URL", out))
         page_err = bool(re.search(r"\[(?!download\b)[\w-]+\]\[error\]", out))
         file_err = bool(re.search(r"\[download\]\[error\]", out))

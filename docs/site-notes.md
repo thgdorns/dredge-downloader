@@ -223,11 +223,18 @@ engines see it).
   with no reason at all. `sites.txt` pins `pixiv.net engine=gdl` so the attempt
   and its error are visible.
 - **gallery-dl needs a refresh token; cookies alone are not enough.** Its docs
-  say OAuth is *necessary* for pixiv. Without `extractor.pixiv.refresh-token`
-  every link stops at `AuthenticationError: 'refresh-token' required`, even with
-  a valid `config/cookies.txt` and a logged-in browser. Get one with
-  `gallery-dl oauth:pixiv` and put it under `extractor` → `pixiv` →
-  `refresh-token` in `config/gallery-dl.conf`.
+  say OAuth is *necessary* for pixiv. Without a token every link stops at
+  `AuthenticationError: 'refresh-token' required`, even with a valid
+  `config/cookies.txt` and a logged-in browser.
+- **`oauth=pixiv` makes Dredge run the login flow itself.** When a link on that
+  host comes back asking for a token, the pass stops the lane board, runs
+  `gallery-dl oauth:pixiv` in the console (it prints a URL, then asks for the
+  `code` from the browser's Network tab), and retries the same link. Once per
+  site per pass, so a cancelled flow cannot loop: the retry is the second and
+  last chance, after which the link is recorded as failed. gallery-dl writes the
+  token to its own cache (`extractor.oauth.cache` defaults to true), so nothing
+  is copied into `config/gallery-dl.conf` — a token there is optional and only
+  needed if the cache is unwritable.
 - The `#ppixiv` fragment that the ppixiv userscript appends is harmless:
   `canon`/`keys` already drop it (so re-queueing with or without it is the same
   link), and gallery-dl matches the path. It is *not* stripped from `dl_url`

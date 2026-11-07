@@ -79,6 +79,38 @@ def run(tmp_path, monkeypatch, behaviour, rule=None, url="https://example.com/po
     return verdict, tmp_path
 
 
+def test_a_missing_gallery_dl_token_asks_the_pass_to_authorize(tmp_path, monkeypatch):
+    """A pinned gallery-dl site without a token hands the login to the pass.
+
+    gallery-dl is the only engine that can fetch pixiv, so a token-less run
+    must not look like a dead link: the worker reports AUTH and the pass runs
+    ``gallery-dl oauth:<site>`` once, then retries.
+    """
+    verdict, _ = run(
+        tmp_path, monkeypatch,
+        {"gdl": {"rc": 1, "text": "[pixiv][error] AuthenticationError: "
+                                 "'refresh-token' required."}},
+        rule=parse_rule("pixiv.net engine=gdl oauth=pixiv"),
+        url="https://www.pixiv.net/artworks/1",
+    )
+
+    assert verdict == "AUTH|pixiv"
+
+
+def test_a_missing_token_without_an_oauth_rule_is_a_plain_failure(
+    tmp_path, monkeypatch
+):
+    verdict, _ = run(
+        tmp_path, monkeypatch,
+        {"gdl": {"rc": 1, "text": "[pixiv][error] AuthenticationError: "
+                                 "'refresh-token' required."}},
+        rule=parse_rule("pixiv.net engine=gdl"),
+        url="https://www.pixiv.net/artworks/1",
+    )
+
+    assert verdict == "FAILED"
+
+
 def test_gallery_dl_success_writes_a_row(tmp_path, monkeypatch):
     verdict, root = run(tmp_path, monkeypatch, {"gdl": {"rc": 0, "file": "clip.mp4"}})
 

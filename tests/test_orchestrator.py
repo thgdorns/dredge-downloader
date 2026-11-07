@@ -109,6 +109,93 @@ def test_the_space_guard_reruns_while_lanes_are_busy(tmp_path, monkeypatch):
     assert str(runtime.settings.destinations["default"].path)[0].upper() == "G"
 
 
+def test_an_auth_verdict_runs_the_login_flow_and_retries_once(tmp_path, monkeypatch):
+    """AUTH|site stops the board, runs the flow, and retries the same link."""
+    calls: list[str] = []
+
+    class AuthWorker:
+        runs = 0
+
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def download(self, url, *, result, **kwargs):
+            AuthWorker.runs += 1
+            verdict = "AUTH|pixiv" if AuthWorker.runs == 1 else "OK|gallery-dl"
+            Path(result).write_text(verdict, encoding="utf-8")
+            return verdict
+
+    paths = Paths(tmp_path)
+    paths.ensure()
+    settings = Settings.load(
+        paths, dest_default=tmp_path / "dest", max_downloads=1,
+        no_capture=True, progress_every_seconds=0,
+    )
+    records.write_lines(paths.queue, ["https://www.pixiv.net/artworks/1"])
+    monkeypatch.setattr(orchestrator, "Worker", AuthWorker)
+    board = FakeBoard()
+
+    def fake_authorize(engines, site, p):
+        calls.append(site)
+        # the pass starts the board once, so equal counters = stopped right now
+        assert board.stopped >= board.started
+        return True
+
+    monkeypatch.setattr(orchestrator, "_authorize", fake_authorize)
+    monkeypatch.setattr(orchestrator, "_make_board", lambda out: board)
+
+    runtime = Runtime(paths, settings)
+    messages: list[str] = []
+    run_pass(
+        runtime, Knowledge({}, SiteRule(host="*"), MirrorTable()),
+        orchestrator.Engines(), out=messages.append,
+    )
+
+    assert calls == ["pixiv"]          # the flow ran exactly once
+    assert AuthWorker.runs == 2        # the link was retried
+    assert any("authorized" in message for message in messages)
+    assert not paths.fail.exists()     # the retry succeeded, so nothing failed
+
+
+def test_a_second_auth_verdict_for_the_same_site_fails_without_a_flow(
+    tmp_path, monkeypatch
+):
+    """A cancelled flow must not loop: the retry is the only second chance."""
+    calls: list[str] = []
+
+    class AlwaysAuthWorker:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def download(self, url, *, result, **kwargs):
+            Path(result).write_text("AUTH|pixiv", encoding="utf-8")
+            return "AUTH|pixiv"
+
+    paths = Paths(tmp_path)
+    paths.ensure()
+    settings = Settings.load(
+        paths, dest_default=tmp_path / "dest", max_downloads=1,
+        no_capture=True, progress_every_seconds=0,
+    )
+    records.write_lines(paths.queue, ["https://www.pixiv.net/artworks/1"])
+    monkeypatch.setattr(orchestrator, "Worker", AlwaysAuthWorker)
+    monkeypatch.setattr(
+        orchestrator, "_authorize",
+        lambda engines, site, p: (calls.append(site), False)[1],
+    )
+    monkeypatch.setattr(orchestrator, "_make_board", lambda out: None)
+
+    runtime = Runtime(paths, settings)
+    run_pass(
+        runtime, Knowledge({}, SiteRule(host="*"), MirrorTable()),
+        orchestrator.Engines(), out=lambda message: None,
+    )
+
+    assert calls == ["pixiv"]                      # offered only once
+    assert paths.fail.exists()                     # the retry was recorded
+    assert "artworks/1" in paths.fail.read_text(encoding="utf-8")
+
+
 def test_zero_lanes_are_clamped_to_one(tmp_path):
     settings = Settings.load(Paths(tmp_path), max_downloads=0)
     runtime = Runtime(Paths(tmp_path), settings)

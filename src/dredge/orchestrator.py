@@ -7,6 +7,7 @@ subprocess and the orchestrator only polls, so a slow engine cannot block it.
 
 from __future__ import annotations
 
+import subprocess
 import sys
 import threading
 import time
@@ -85,6 +86,26 @@ def _line(stamp, message: str, color: str = "") -> str:
     """A terminal line: blue ``[HH:MM:SS]`` then the message in ``color``."""
     body = paint.paint(message, color) if color else message
     return f"{paint.blue(f'[{stamp()}]')} {body}"
+
+
+def _authorize(engines: Engines, site: str, paths: Paths) -> bool:
+    """Run gallery-dl's ``oauth:<site>`` flow so it caches a token.
+
+    Interactive by design: gallery-dl prints a URL and then asks for the
+    ``code`` from the browser, so the child inherits the console. gallery-dl
+    writes the token to its own cache, so nothing is copied into the config.
+    """
+    exe = engines.gdl
+    if not exe:
+        return False
+    cmd = [exe, "--config-ignore", "-c", str(paths.gallery_conf)]
+    if paths.gallery_runtime.exists():
+        cmd += ["-c", str(paths.gallery_runtime)]
+    cmd.append(f"oauth:{site}")
+    try:
+        return subprocess.call(cmd, cwd=str(paths.root)) == 0
+    except OSError:
+        return False
 
 
 def _fallback(
@@ -228,6 +249,7 @@ def run_pass(
     pending_since = time.monotonic()
     space_checked: dict[str, float] = {}
     full_dests: set[str] = set()
+    auth_tried: set[str] = set()
     # The lane-start check below only runs when a link is dispatched. A pass
     # whose links were all dispatched while the disk had room fills it and then
     # sits with nothing pending, so the check never fires again: the pass hangs
@@ -458,7 +480,44 @@ def run_pass(
                     records.write_lines(paths.queue, remaining)
 
                 record_line = lane.line or lane.url
-                if verdict == "OFFLINE":
+                if verdict.startswith("AUTH|"):
+                    # The site is pinned to gallery-dl and it has no token yet.
+                    # Run its login flow now (interactive), then retry the link:
+                    # once per site per pass, so a cancelled flow cannot loop.
+                    site = verdict[5:]
+                    if site not in auth_tried:
+                        auth_tried.add(site)
+                        out(_line(
+                            stamp,
+                            f"{site}: authorization needed - starting gallery-dl's "
+                            "login flow (it prints a URL, then asks for a code)",
+                            "yellow",
+                        ))
+                        if board:
+                            board.stop()
+                        try:
+                            authorized = _authorize(engines, site, paths)
+                        finally:
+                            if board:
+                                board.start()
+                        if authorized:
+                            out(_line(stamp, f"{site}: authorized - retrying.", "green"))
+                        else:
+                            out(_line(
+                                stamp,
+                                f"{site}: login flow did not finish - the link is "
+                                "retried once, then recorded as failed.",
+                                "yellow",
+                            ))
+                        remaining.append(record_line)
+                        if not settings.dry_run:
+                            records.write_lines(paths.queue, remaining)
+                        pending.append(lane.index - 1)   # lane.index is 1-based
+                        continue
+                    records.append_lines(paths.fail, [record_line])
+                    stats.failed += 1
+                    _mark_failed(runtime, knowledge, lane.url)
+                elif verdict == "OFFLINE":
                     records.append_lines(paths.offline, [record_line])
                     stats.offline += 1
                     _mark_failed(runtime, knowledge, lane.url)

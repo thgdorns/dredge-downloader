@@ -5,6 +5,7 @@
 #             [probe=HOSTS] [gdl=KEY=VAL,...] [key=PARAM] [playlist=SEG]
 #             [postid=REGEX] [posturl=URL] [itemurl=URL] [tpl=TEMPLATE]
 #             [folder=REGEX] [cookiedrop=NAMES] [engine=NAME] [author=NAME] [dest=NAME]
+#             [oauth=SITE]
 #             [gdl=OPTIONS] [yt=ARGS]
 #             [rewrite=REGEX=>URL]
 #     *       [strip=REGEX] [dlstrip=REGEX] [keepfrag=REGEX]
@@ -33,6 +34,9 @@
 #   yt=ARGS      extra yt-dlp arguments for this host, comma separated
 #                (e.g. yt=--write-description)
 #   dest=NAME    destination from dredge.conf ([dest:NAME]); default otherwise
+#   oauth=SITE   gallery-dl site that needs a login token: when a token is
+#                missing the pass runs gallery-dl oauth:SITE (prints a URL, then
+#                asks for a code) and retries the link. gallery-dl caches it.
 #   rewrite=REGEX=>URL  rewrite the URL before the engines see it (path/alias fix)
 #   cookiedrop=NAMES  cookies a site must never receive (wildcards allowed)
 #

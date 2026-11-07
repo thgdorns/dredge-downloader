@@ -259,12 +259,18 @@ engines see it).
   look new. `build_plan` now also drops a second shape of the same id in one
   queue, and `downloads.tsv` lookups match through the id.
 - **Ugoira downloads become a video, not a zip.** `extractor.pixiv.postprocessors`
-  in `config/gallery-dl.conf` holds `{"name": "ugoira", "extension": "mp4"}`.
+  in `config/gallery-dl.conf` holds `{"name": "ugoira", "extension": "webm"}`.
   It must live *under the extractor*: a top-level `postprocessors` list is
   ignored whenever `--Print-to-file` is used, and that is how Dredge asks
   gallery-dl which files it wrote (`Active postprocessor modules` showed only
   `MetadataPP` until the entry moved). ffmpeg converts the frames and deletes
   them; the result is one file, so the filename has no page suffix.
+- **WebM/VP9, not MP4, and why.** Measured on a 134-frame ugoira (329×420):
+  `mp4` → 3.35 MB h264 at CRF 23 **and 328 px wide**, because the postprocessor
+  crops odd dimensions for x264; `webm` → 5.83 MB VP9, no crop; `vp9-lossless` →
+  14.22 MB, bit-exact; `copy` → 31.11 MB of MJPEG in an mkv (bit-exact, largest,
+  and mkvmerge is not installed so the accurate-timecode mode is unavailable).
+  WebM is the best quality-per-byte and keeps the original size.
 - **`#ppixiv?page=N` downloads just that page, and is its own download.** The
   ppixiv userscript records the viewer's 0-based index in the fragment; Dredge
   turns it into gallery-dl's 1-based `--range N+1` (`page=5` → the sixth image,

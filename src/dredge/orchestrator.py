@@ -1,4 +1,4 @@
-"""The pass loop: take the queue, run the lanes, fold the rows, come back.
+﻿"""The pass loop: take the queue, run the lanes, fold the rows, come back.
 
 Threads run the worker in this process. The legacy script spawned a child
 PowerShell per URL; a thread is enough here because every engine call is a
@@ -31,6 +31,9 @@ from .urls import Knowledge, host
 from .worker import Worker
 
 SPACE_STOP_GB = 10
+# How often the free-space guard re-checks a destination already in use. The
+# lane-start check cannot see a disk that fills while its own lanes run.
+SPACE_RECHECK_SECONDS = 120
 
 
 def _local_now() -> datetime:
@@ -225,6 +228,13 @@ def run_pass(
     pending_since = time.monotonic()
     space_checked: dict[str, float] = {}
     full_dests: set[str] = set()
+    # The lane-start check below only runs when a link is dispatched. A pass
+    # whose links were all dispatched while the disk had room fills it and then
+    # sits with nothing pending, so the check never fires again: the pass hangs
+    # on lanes that cannot write, and the fallback drive is never used. Track
+    # the destinations in use and re-check them on a timer as well.
+    dest_roots: set[str] = set()
+    space_at = time.monotonic()
     progress_at = time.monotonic()
     progress_last: dict[int, tuple[str, bool]] = {}
     queued_canon = {key for u in ordered for key in knowledge.keys(split_line(u)[0])}
@@ -236,6 +246,31 @@ def run_pass(
         while pending or active:
             if paths.paused.exists() and not active:
                 break           # leave the rest in queue.txt
+            if not settings.dry_run and dest_roots:
+                now_space = time.monotonic()
+                if now_space - space_at >= SPACE_RECHECK_SECONDS:
+                    space_at = now_space
+                    low = sorted(
+                        root for root in dest_roots
+                        if 0 <= free_gb(root) < SPACE_STOP_GB
+                    )
+                    fresh = [root for root in low if root not in full_dests]
+                    if fresh:
+                        root = fresh[0]
+                        full_dests.add(root)
+                        free = free_gb(root)
+                        message = (
+                            f"Stopping: only {free:.0f} GB free on "
+                            f"{Path(root).anchor} - its links stay queued."
+                        )
+                        out(_line(stamp, message, "yellow"))
+                        _log_line(stats.log, f"[{stamp()}] {message}")
+                        refreshed = _fallback(runtime, settings, out, stamp)
+                        if refreshed is not settings:
+                            settings = refreshed
+                            full_dests.clear()
+                            space_checked.clear()
+                            dest_roots.clear()
             while len(active) < runtime.max_downloads and pending:
                 if paths.paused.exists():
                     break       # let running lanes finish, start nothing new
@@ -247,6 +282,7 @@ def run_pass(
                 target = destination_for(url, knowledge, settings)
                 override = destination_override(spec, target.path) if spec else None
                 dest_root = override or target.path
+                dest_roots.add(str(dest_root).lower())
                 # A queue line's destination is handed to the engine as a full
                 # filepath template, so the engine writes there and nothing is
                 # added underneath; gallery-dl gets the folder plus -D.
@@ -257,7 +293,7 @@ def run_pass(
                     if str(dest_root).lower() in full_dests:
                         continue        # leave it in queue.txt; this pass skips it
                     last = space_checked.get(str(dest_root).lower(), 0.0)
-                    if (time.monotonic() - last) >= 120:
+                    if (time.monotonic() - last) >= SPACE_RECHECK_SECONDS:
                         space_checked[str(dest_root).lower()] = time.monotonic()
                         free = free_gb(dest_root)
                         if 0 <= free < SPACE_STOP_GB:

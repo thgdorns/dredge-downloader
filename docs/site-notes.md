@@ -187,6 +187,12 @@ engines see it).
   generic tier and the dedicated tier has no extractor for this host.
 - `--write-description` writes `<site>/<title>.description`, and `tpl=` puts
   every video in `n.sfw.video/`.
+- **`dest=nsfw` keeps the library on `D:`.** The default destination is on G:
+  (931 GB, shared with Eroge and GAMES), which fills first, and these videos
+  add ~100 MB each; a full G: then stalls every lane at 0.0% while the drive
+  fallback, which only looks at the default destination, cannot help. A named
+  destination on its own drive is not moved by that fallback, so the library
+  keeps working when G: is full.
 - **`-S res` is required.** The generic extractor marks the LQ rendition
   `quality=1`; yt-dlp's default `b` then picks LQ. Sorting by resolution picks
   1080p (480/720/1080 carry real heights).

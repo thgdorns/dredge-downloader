@@ -52,6 +52,63 @@ def test_fallback_rechecks_drive_space(tmp_path, monkeypatch):
     assert any("writing to G:" in message for message in messages)
 
 
+def test_the_space_guard_reruns_while_lanes_are_busy(tmp_path, monkeypatch):
+    """A pass that fills the disk itself must still notice and switch drives.
+
+    The lane-start check only runs when a link is dispatched. When the queue's
+    remaining links were all dispatched while there was room, the disk fills
+    during the pass and nothing ever checks again - the pass then hangs on
+    lanes that cannot write and the fallback drive is never used.
+    """
+    import time as _time
+
+    from dredge import destinations
+
+    free = {"gb": 100.0}
+
+    class FillingWorker:
+        """Stands in for the engine: the disk drops below the guard mid-lane."""
+
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def download(self, url, *, dest, flat, dest_tpl, ignore_records,
+                     lane_log, result, archive, slot, **kwargs):
+            free["gb"] = 0.5          # the lane itself filled the disk
+            _time.sleep(1.5)
+            Path(result).write_text("OK|gallery-dl", encoding="utf-8")
+            return "OK|gallery-dl"
+
+    paths = Paths(tmp_path)
+    paths.ensure()
+    settings = Settings.load(
+        paths, dest_default=tmp_path / "dest", max_downloads=1,
+        no_capture=True, progress_every_seconds=0,
+        dest_fallback=("G:",), dest_fallback_below_gb=20,
+    )
+    records.write_lines(paths.queue, ["https://example.com/slow"])
+
+    def space(path) -> float:
+        first = str(path)[0].upper()
+        return free["gb"] if first == str(tmp_path)[0].upper() else 100.0
+
+    monkeypatch.setattr(orchestrator, "Worker", FillingWorker)
+    monkeypatch.setattr(orchestrator, "SPACE_RECHECK_SECONDS", 0)
+    monkeypatch.setattr(orchestrator, "free_gb", space)
+    monkeypatch.setattr(orchestrator, "apply_fallback", destinations.apply_fallback)
+    monkeypatch.setattr(destinations, "free_gb", space)
+
+    runtime = Runtime(paths, settings)
+    messages: list[str] = []
+    run_pass(
+        runtime, Knowledge({}, SiteRule(host="*"), MirrorTable()),
+        orchestrator.Engines(), out=messages.append,
+    )
+
+    assert any("Stopping: only 0 GB free" in message for message in messages)
+    assert str(runtime.settings.destinations["default"].path)[0].upper() == "G"
+
+
 def test_zero_lanes_are_clamped_to_one(tmp_path):
     settings = Settings.load(Paths(tmp_path), max_downloads=0)
     runtime = Runtime(Paths(tmp_path), settings)

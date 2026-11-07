@@ -242,6 +242,35 @@ def test_a_link_appended_mid_pass_survives_the_queue_rewrite(
     assert "second" not in paths.queue.read_text(encoding="utf-8")
 
 
+def test_the_page_listing_warning_can_be_turned_off(tmp_path):
+    """A pixiv gallery legitimately writes a dozen files for one URL."""
+    names = ";".join(f"file{i}.jpg" for i in range(12))
+    rows = [f"2026-11-07 12:00:00\tsite.example/post/1\t{names}"]
+    paths = Paths(tmp_path)
+
+    on = Settings.load(paths)
+    off = Settings.load(paths, warn_page_listing="off")
+
+    messages: list[str] = []
+    orchestrator._warn_pages(rows, messages.append, lambda: "12:00:00", on)
+    assert any("looks like a page listing" in message for message in messages)
+
+    messages.clear()
+    orchestrator._warn_pages(rows, messages.append, lambda: "12:00:00", off)
+    assert messages == []
+
+
+def test_the_page_listing_setting_is_read_from_the_config_file(tmp_path):
+    paths = Paths(tmp_path)
+    paths.ensure()
+    paths.config.mkdir(parents=True, exist_ok=True)
+    (paths.config / "dredge.conf").write_text(
+        "warn_page_listing = off\n", encoding="utf-8"
+    )
+
+    assert Settings.load(paths).warn_page_listing == "off"
+
+
 def test_zero_lanes_are_clamped_to_one(tmp_path):
     settings = Settings.load(Paths(tmp_path), max_downloads=0)
     runtime = Runtime(Paths(tmp_path), settings)

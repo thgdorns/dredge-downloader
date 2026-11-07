@@ -294,6 +294,9 @@ class Settings:
     no_prompt: bool = False
     ignore_records: bool = False
     progress_every_seconds: int = 15
+    # "WARNING: one URL produced N files (looks like a page listing)". A pixiv
+    # gallery legitimately does this, so it can be turned off.
+    warn_page_listing: str = "on"
     # An engine that prints nothing for this long is killed: megatools and
     # friends can sit silently for minutes and hold a lane forever.
     stall_seconds: int = 30
@@ -367,7 +370,7 @@ def _read_conf(path: Path) -> tuple[dict[str, object], dict[str, dict[str, str]]
         "gdl": str, "megatools": str, "mediafire": str, "gdown": str,
         "cookies_browser": str,
         "idle_seconds": int, "progress_every_seconds": int,
-        "stall_seconds": int,
+        "stall_seconds": int, "warn_page_listing": str,
         "fold_batch_rows": int, "fold_batch_seconds": int,
     }
     out: dict[str, object] = {}

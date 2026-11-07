@@ -460,7 +460,7 @@ def run_pass(
                 verdict = _verdict(lane.result)
                 rows = _archive_rows(lane.archive)
                 if rows:
-                    _warn_pages(rows, out, stamp)
+                    _warn_pages(rows, out, stamp, settings)
                     if not settings.dry_run:
                         pending_rows += append_pending(paths.fold_pending, rows)
                         if (
@@ -715,7 +715,11 @@ def _lane_folder_uri(paths: Paths, slot: int) -> str:
     return paint.file_uri(here) if here else ""
 
 
-def _warn_pages(rows: list[str], out, stamp) -> None:
+def _warn_pages(rows: list[str], out, stamp, settings: Settings) -> None:
+    """Warn when one URL wrote a pile of files - usually a page listing a rule
+    mistook for a single post. ``warn_page_listing = off`` silences it."""
+    if settings.warn_page_listing.strip().lower() in ("off", "no", "false", "0"):
+        return
     for row in rows:
         fields = row.split("\t")
         if len(fields) >= 3 and fields[2]:

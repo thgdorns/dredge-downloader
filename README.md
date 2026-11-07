@@ -155,6 +155,10 @@ catches a silent hang - a blocked IP, a dead socket - that would otherwise hold
 a lane for as long as the process lives. Partial files are kept, so the next run
 resumes them.
 
+`warn_page_listing = off` silences the "one URL produced N files (looks like a
+page listing)" warning. A pixiv gallery legitimately writes a dozen files for
+one URL.
+
 Probe mode runs until **Esc** (or Ctrl+C) and leaves the queue paused so the
 list can be pruned first; it ends by resuming the downloads. With a piped
 stdin it drains `state/clip-inbox.txt` once and exits, which is what the tests

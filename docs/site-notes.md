@@ -252,6 +252,17 @@ engines see it).
   older archive rows were keyed with `/en/`, which is what made retried links
   look new. `build_plan` now also drops a second shape of the same id in one
   queue, and `downloads.tsv` lookups match through the id.
+- **Ugoira downloads become a video, not a zip.** `extractor.pixiv.postprocessors`
+  in `config/gallery-dl.conf` holds `{"name": "ugoira", "extension": "mp4"}`.
+  It must live *under the extractor*: a top-level `postprocessors` list is
+  ignored whenever `--Print-to-file` is used, and that is how Dredge asks
+  gallery-dl which files it wrote (`Active postprocessor modules` showed only
+  `MetadataPP` until the entry moved). ffmpeg converts the frames and deletes
+  them; the result is one file, so the filename has no page suffix.
+- **`#ppixiv?page=N` downloads just that page.** The ppixiv userscript records
+  the viewer's 0-based index in the fragment; Dredge turns it into gallery-dl's
+  1-based `--range N+1` (`page=5` → the sixth image, `p5`). Without the fragment
+  the whole post is fetched as usual.
 - **Filenames are `<title> <id>`, with a page suffix only for multi-page posts.**
   `extractor.pixiv.filename` in `config/gallery-dl.conf` is
   `"\fF {title} {id}{('_p' + str(num)) if count > 1 else ''}.{extension}"`.

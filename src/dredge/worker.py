@@ -66,6 +66,20 @@ def drive_folder_name(folder_id: str, timeout: float = 15.0) -> str:
     return name[:120]
 
 
+def page_from_fragment(url: str) -> int | None:
+    """The image index the ppixiv userscript records in the URL fragment.
+
+    ``…#ppixiv?page=5`` is the viewer's own 0-based index (pixiv's manga viewer
+    numbers the first page 0), so gallery-dl's 1-based ``--range`` wants
+    ``page + 1``. Nothing else in the URL uses the fragment.
+    """
+    fragment = url.partition("#")[2]
+    if not fragment:
+        return None
+    match = re.search(r"[?&]page=(\d+)", fragment)
+    return int(match.group(1)) if match else None
+
+
 @dataclass(frozen=True)
 class FileRecord:
     name: str
@@ -569,6 +583,11 @@ class Worker:
             dl, final_dest, flat or bool(folder), dl_rule, playlist,
             files_manifest, sim, ignore, target_file,
         )
+        page = page_from_fragment(url)
+        if page is not None:
+            # Only this page: the fragment is a viewer index, --range is 1-based.
+            self._lane(f"[gallery-dl] page {page + 1} only (from the URL fragment)")
+            args = ["--range", str(page + 1), *args]
         if playlist and archive:
             result.pages_manifest = Path(str(archive) + ".pages")
             try:

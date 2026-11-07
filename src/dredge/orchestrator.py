@@ -802,22 +802,19 @@ def _sleep(
                 board.start()
 
     def toggle() -> None:
-        if board:
-            board.stop()
         stamp_text = paint.blue(f"[{time.strftime('%H:%M:%S')}]")
         try:
-            try:
-                paused, message = toggle_paused(runtime, knowledge)
-            except OSError as exc:
-                say(
-                    f"{stamp_text} {paint.red(f'pause failed: {exc}')}",
-                    runtime.paths,
-                )
-                return
-            color = paint.yellow if paused else paint.green
-            say(f"{stamp_text} {color(message)}", runtime.paths)
-        finally:
-            if board:
-                board.start()
+            paused, message = toggle_paused(runtime, knowledge)
+        except OSError as exc:
+            say(
+                f"{stamp_text} {paint.red(f'pause failed: {exc}')}",
+                runtime.paths,
+            )
+            return
+        color = paint.yellow if paused else paint.green
+        # Print above the live block instead of stopping it: Live.stop() writes
+        # a newline and then erases its height, which overshoots and clears the
+        # lines the run printed above the lanes.
+        say(f"{stamp_text} {color(message)}", runtime.paths)
 
     menu.wait(seconds, open_menu, on_pause=toggle)

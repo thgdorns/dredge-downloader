@@ -87,10 +87,12 @@ class LaneBoard:
             suffix = (
                 f" {self._finishing} lane(s) finishing" if self._finishing else ""
             )
-            rows.append(Text.assemble(
+            banner = Text.assemble(
                 (" PAUSED ", "bold white on red"),
                 (f" new downloads held{suffix} - press P to resume", "yellow"),
-            ))
+            )
+            banner.truncate(limit, overflow="ellipsis")
+            rows.append(banner)
         for slot in sorted(self._lines):
             text = self._lines[slot].copy()
             text.truncate(limit, overflow="ellipsis")

@@ -171,7 +171,25 @@ def _run_instance(
         if not (settings.once or settings.dry_run):
             return 0
 
-    return run_loop(runtime, knowledge, engines)
+    try:
+        return run_loop(runtime, knowledge, engines)
+    except KeyboardInterrupt:
+        raise
+    except Exception:  # noqa: BLE001 - a crash must leave a trace, not just vanish
+        # The window closes with the process, so an uncaught error used to leave
+        # nothing behind: the run log simply stopped. Keep the traceback.
+        import traceback
+
+        crash = paths.logs / time.strftime("crash-%Y%m%d-%H%M%S.txt")
+        try:
+            paths.logs.mkdir(parents=True, exist_ok=True)
+            crash.write_text(traceback.format_exc(), encoding="utf-8")
+        except OSError:
+            crash = None  # type: ignore[assignment]
+        traceback.print_exc()
+        if crash:
+            print(f"traceback written to {crash}")
+        return 1
 
 
 def prepare(

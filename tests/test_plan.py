@@ -11,6 +11,29 @@ def knowledge() -> Knowledge:
     )
 
 
+def test_the_same_post_queued_in_two_shapes_is_one_download():
+    """pixiv links arrive as /artworks/<id> and /en/artworks/<id>.
+
+    Canon keeps the language prefix, so only the site id can tell that they are
+    the same post - without it the pass downloads it twice.
+    """
+    knowledge = Knowledge(
+        rules={"pixiv.net": parse_rule("pixiv.net id=\\d{6,}")},
+        global_rule=SiteRule(host="*"),
+        mirrors=MirrorTable(),
+    )
+    plan = build_plan(
+        [
+            "https://www.pixiv.net/artworks/151639756",
+            "https://www.pixiv.net/en/artworks/151639756",
+        ],
+        seen=set(), failed=set(), skip_always=set(), knowledge=knowledge,
+    )
+
+    assert plan.urls == ["https://www.pixiv.net/artworks/151639756"]
+    assert plan.duplicates == 1
+
+
 def test_drops_unusable_lines():
     plan = build_plan(
         ["not a url", "ftp://example.com/x", "https://example.com/a"],

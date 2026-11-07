@@ -84,6 +84,10 @@ def build_plan(
     """
     plan = Plan()
     unique: set[str] = set()
+    # The same post can be queued under two shapes (`/artworks/<id>` and
+    # `/en/artworks/<id>`); canon keeps the language prefix, so only the site
+    # id says they are one download.
+    idents: set[str] = set()
     for raw in urls:
         url, spec = split_line(raw)
         if not url or url.startswith("#"):
@@ -118,7 +122,12 @@ def build_plan(
         if any(key in unique for key in keys):
             plan.duplicates += 1
             continue
+        if ident and ident in idents:
+            plan.duplicates += 1
+            continue
         unique.update(keys)
+        if ident:
+            idents.add(ident)
         plan.urls.append(with_spec(url, spec))
     return plan
 

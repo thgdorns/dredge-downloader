@@ -246,6 +246,12 @@ engines see it).
   token to its own cache (`extractor.oauth.cache` defaults to true), so nothing
   is copied into `config/gallery-dl.conf` — a token there is optional and only
   needed if the cache is unwritable.
+- **`id=\d{6,}` makes `/artworks/<id>` and `/en/artworks/<id>` one post.**
+  `canon` keeps the language prefix (`/en/`), so without the id rule the same
+  post is a different link in each shape and gets downloaded twice — 1062 of the
+  older archive rows were keyed with `/en/`, which is what made retried links
+  look new. `build_plan` now also drops a second shape of the same id in one
+  queue, and `downloads.tsv` lookups match through the id.
 - **Filenames are `<title> <id>`, with a page suffix only for multi-page posts.**
   `extractor.pixiv.filename` in `config/gallery-dl.conf` is
   `"\fF {title} {id}{('_p' + str(num)) if count > 1 else ''}.{extension}"`.

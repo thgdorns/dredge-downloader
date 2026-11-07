@@ -3,6 +3,36 @@ import sys
 from dredge.engines import lane_status, lane_status_tail, run
 
 
+def test_gdown_progress_bar_gives_percent_and_speed(tmp_path):
+    """Drive lanes showed only the URL: gdown reports through a tqdm bar."""
+    log = tmp_path / "lane1.log"
+    log.write_text(
+        "Downloading...\n"
+        "To: C:\\Downloads\\clip.mp4\n"
+        "  0%|          | 0.00/1.22G [00:00<?, ?B/s]\n"
+        "  1%|          | 7.86M/1.22G [00:00<01:24, 14.3MB/s]\n",
+        encoding="utf-8",
+    )
+    file, pct, speed = lane_status(log)
+    assert file == "clip.mp4"
+    assert pct == "1%"
+    assert speed == "13.6 MiB/s"
+
+
+def test_gdown_without_a_rate_keeps_the_last_known_speed(tmp_path):
+    log = tmp_path / "lane1.log"
+    log.write_text(
+        "To: C:\\Downloads\\clip.mp4\n"
+        " 50%|#####     | 610M/1.22G [00:20<00:20, 30.5MB/s]\n"
+        " 50%|#####     | 611M/1.22G [00:20<?, ?B/s]\n",
+        encoding="utf-8",
+    )
+    file, pct, speed = lane_status(log)
+    assert file == "clip.mp4"
+    assert pct == "50%"
+    assert speed == "29.1 MiB/s"
+
+
 def test_ytdlp_progress_marker_gives_percent_and_speed(tmp_path):
     log = tmp_path / "lane1.log"
     log.write_text(

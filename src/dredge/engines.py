@@ -318,6 +318,19 @@ def _parse_lane_text(text: str) -> tuple[str, str, str]:
         m = re.search(r"(\d+(?:\.\d+)?%)\s+of", line)
         if m:
             pct = m.group(1)
+        # gdown prints the target path, then a tqdm bar:
+        #   To: G:\Downloads\clip.mp4
+        #     1%|          | 7.86M/1.22G [00:00<01:24, 14.3MB/s]
+        m = re.search(r"^To:\s*(.+)$", line)
+        if m:
+            file = m.group(1).strip()
+        m = re.search(
+            r"(\d{1,3})%\|[^|]*\|\s*\S+/\S+\s*\[[^\]]*?,\s*([\d.]+\s*[A-Za-z]+/s)\]",
+            line,
+        )
+        if m:
+            pct = f"{int(m.group(1))}%"
+            speed = _speed(m.group(2))
 
     # Progress markers written by our engine arguments. The lane log may carry
     # many updates on one line (\r separated), so take the last match.

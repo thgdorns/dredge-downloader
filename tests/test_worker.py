@@ -209,6 +209,105 @@ def test_a_blocked_mega_ip_fails_fast_and_says_so(tmp_path, monkeypatch):
     assert 'blocked this IP' in log
 
 
+def test_a_folderview_link_is_given_to_gdown_as_a_folder(tmp_path, monkeypatch):
+    """gdown reads the last path segment as the id: "folderview" is not one.
+
+    It also only treats a URL as a folder when told to, so a /drive/u/0/folders
+    link with ?resourcekey= was downloaded as if it were a file (the page).
+    """
+    rule = parse_rule("drive.google.com engine=gdown")
+    paths = Paths(tmp_path)
+    settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
+    calls: list[list[str]] = []
+
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None, stall=None):
+        calls.append(list(args))
+        target = Path(args[args.index("-O") + 1].rstrip("\\/"))
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "clip.mp4").write_bytes(b"x" * 200_000)
+        return 0, ""
+
+    monkeypatch.setattr(worker_module, "run", fake)
+    monkeypatch.setattr(
+        worker_module, "drive_folder_name", lambda fid, timeout=15.0: "aih kob"
+    )
+    worker = Worker(paths, settings, Engines(gdown="gdown"), knowledge(rule))
+
+    verdict = worker.download(
+        "https://drive.google.com/folderview?id=0B6mvlPjq2f4UbW1xNkdWSnQ0NHc&usp=sharing",
+        dest=tmp_path / "dest",
+        lane_log=tmp_path / "lane1.log",
+        result=tmp_path / "lane1.result",
+        archive=tmp_path / "lane1.archive",
+    )
+
+    assert verdict == "OK|gdown"
+    assert "--folder" in calls[0]
+    assert (
+        "https://drive.google.com/drive/folders/0B6mvlPjq2f4UbW1xNkdWSnQ0NHc"
+        in calls[0]
+    )
+
+
+def test_a_deleted_drive_file_is_offline_not_failed(tmp_path, monkeypatch):
+    """gdown says the same thing for a deleted file and a throttled one."""
+    rule = parse_rule("drive.google.com engine=gdown")
+    paths = Paths(tmp_path)
+    settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
+
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None, stall=None):
+        return 1, (
+            "Failed to retrieve file url: Cannot retrieve the public link of the "
+            "file. You may need to change the permission to 'Anyone with the "
+            "link', or have had many accesses."
+        )
+
+    monkeypatch.setattr(worker_module, "run", fake)
+    monkeypatch.setattr(
+        worker_module, "drive_file_gone", lambda url, timeout=15.0: True
+    )
+    worker = Worker(paths, settings, Engines(gdown="gdown"), knowledge(rule))
+
+    verdict = worker.download(
+        "https://drive.google.com/file/d/1TmWmG2cE_BjpE25JZVwfjAlj4pnOLaaA/view",
+        dest=tmp_path / "dest",
+        lane_log=tmp_path / "lane1.log",
+        result=tmp_path / "lane1.result",
+        archive=tmp_path / "lane1.archive",
+    )
+
+    assert verdict == "OFFLINE"
+
+
+def test_a_throttled_drive_file_is_failed_not_offline(tmp_path, monkeypatch):
+    """The download limit is temporary, so the link must stay retryable."""
+    rule = parse_rule("drive.google.com engine=gdown")
+    paths = Paths(tmp_path)
+    settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
+
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None, stall=None):
+        return 1, (
+            "Cannot retrieve the public link of the file. You may need to change "
+            "the permission to 'Anyone with the link', or have had many accesses."
+        )
+
+    monkeypatch.setattr(worker_module, "run", fake)
+    monkeypatch.setattr(
+        worker_module, "drive_file_gone", lambda url, timeout=15.0: False
+    )
+    worker = Worker(paths, settings, Engines(gdown="gdown"), knowledge(rule))
+
+    verdict = worker.download(
+        "https://drive.google.com/file/d/1S2k_njWCvtU0QvPOYmxG-F-YuyPpZTrc/view",
+        dest=tmp_path / "dest",
+        lane_log=tmp_path / "lane1.log",
+        result=tmp_path / "lane1.result",
+        archive=tmp_path / "lane1.archive",
+    )
+
+    assert verdict == "FAILED"
+
+
 def test_a_drive_folder_is_named_after_the_folder_not_its_id(tmp_path, monkeypatch):
     rule = parse_rule('drive.google.com engine=gdown')
     paths = Paths(tmp_path)

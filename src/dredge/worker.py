@@ -20,6 +20,7 @@ import re
 import tempfile
 import threading
 import time
+import urllib.error
 import urllib.request
 import uuid
 from dataclasses import dataclass, field
@@ -77,6 +78,46 @@ def drive_folder_name(folder_id: str, timeout: float = 15.0) -> str:
     name = re.sub(r"\s*-\s*Google Drive$", "", name, flags=re.IGNORECASE)
     name = _BAD_FOLDER_CHARS.sub("_", name).strip().rstrip(".")
     return name[:120]
+
+
+def drive_engine_url(url: str) -> str:
+    """The shape gdown parses for a folder.
+
+    gdown takes the last path segment as the id, so ``folderview?id=<id>`` is
+    read as the folder called "folderview" and answered with 404. The
+    ``/drive/folders/<id>`` shape works, and gdown keeps the ``resourcekey``
+    query as long as the path is right (``--folder`` is passed for it).
+    """
+    if "folderview" in url:
+        match = re.search(r"[?&]id=([A-Za-z0-9_-]+)", url)
+        if match:
+            return f"https://drive.google.com/drive/folders/{match.group(1)}"
+    return url
+
+
+def drive_file_gone(url: str, timeout: float = 15.0) -> bool:
+    """True when Drive's download endpoint answers 404 for this file.
+
+    gdown reports "Cannot retrieve the public link ... or have had many
+    accesses" for both a deleted file and a temporarily throttled one, so the
+    status is asked directly: a live file answers 206 to a one-byte range (and
+    the connection is dropped unread), a deleted one answers 404.
+    """
+    match = re.search(r"/file/d/([A-Za-z0-9_-]+)", url)
+    if not match:
+        return False
+    probe = f"https://drive.google.com/uc?id={match.group(1)}&export=download"
+    request = urllib.request.Request(probe, headers={
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "Range": "bytes=0-0",
+    })
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.status == 404
+    except urllib.error.HTTPError as exc:
+        return exc.code == 404
+    except Exception:  # noqa: BLE001 - a probe must never break the download
+        return False
 
 
 def page_from_fragment(url: str) -> int | None:
@@ -252,6 +293,7 @@ class Worker:
         self._temps: list[Path] = []
         self._drive_names: dict[str, str] = {}
         self._quota_host = ""
+        self._gone = False
         self._extractor = ""
 
     # -- logging ---------------------------------------------------------
@@ -320,6 +362,7 @@ class Worker:
         if resolved != url:
             self._lane(f"[redirect] {url} -> {resolved}")
         self._quota_host = ""      # set when the engine says the IP is out of quota
+        self._gone = False         # set when a probe proves the file is deleted
 
         if dest is None:
             target = destination_for(resolved, self.knowledge, self.settings)
@@ -582,7 +625,7 @@ class Worker:
             # watch." - the account cannot see it, and a retry will not change
             # that, so the pass parks it instead of adding it to fail.txt.
             verdict = "PRIVATE|yt-dlp"
-        elif OFFLINE_RE.search(self.text):
+        elif self._gone or OFFLINE_RE.search(self.text):
             verdict = "OFFLINE"
         else:
             verdict = "FAILED"
@@ -931,6 +974,7 @@ class Worker:
             # Drive is used for public folders. Asking as the logged-in account
             # turns "public but not shared with me" into an empty listing, so
             # anonymous is the default and the jar is only a fallback.
+            dl = drive_engine_url(dl)
             args = self._gdown_args(exe, dl, dest, cookies=False)
         else:
             args = [exe, "-o", str(dest), "-m", "4", "-t", "2", dl]
@@ -988,6 +1032,15 @@ class Worker:
                     f"[{name}] Drive refused it: the link is not public any more, "
                     "or the access limit for this file is spent - retry later"
                 )
+                if name == "gdown" and drive_file_gone(dl):
+                    # The same wording covers a deleted file and a throttled one;
+                    # the endpoint itself says which, and only a deleted file is
+                    # worth parking in offline.txt.
+                    self._gone = True
+                    self._lane(
+                        "[gdown] Drive answers 404 for this file - it was deleted, "
+                        "not throttled"
+                    )
         return None
 
     def _gdown_args(
@@ -999,6 +1052,11 @@ class Worker:
         covers the transient 403s Drive answers under load.
         """
         args = [exe, "-c", "--retries", "3", "-O", self._gdown_output(url, dest)]
+        if "/folders/" in url:
+            # gdown only treats a URL as a folder when told to: without this a
+            # /drive/u/0/folders/<id>?resourcekey=... link is taken for a file
+            # and the page itself is downloaded.
+            args.append("--folder")
         args += self._gdown_cookies() if cookies else ["--no-cookies"]
         args.append(url)
         return args

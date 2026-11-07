@@ -130,8 +130,14 @@ engines see it).
 
 - `engine=gdown`. `/file/d/<id>`, `/open?id=<id>` and `?id=<id>` all work;
   `-c` resumes a partial file and skips a finished one.
-- A folder link writes into `<dest>/<folder id>`: the folder name is not in the
-  link (same fallback MEGA uses).
+- **A folder link must reach gdown in a shape it parses.** gdown reads the last
+  path segment as the id and only treats a URL as a folder when told to, so
+  `/drive/u/0/folders/<id>?resourcekey=…` was taken for a *file* and the page
+  itself was downloaded; `folderview?id=<id>` was read as a folder called
+  "folderview" (404). `drive_engine_url` rewrites `folderview` to
+  `/drive/folders/<id>`, and `--folder` is passed for any `/folders/` URL. The
+  folder's own name is still what the destination folder is called
+  (`drive_folder_name`, which fetches the page title).
 - **Short links are resolved before the rule lookup.** `config/shorteners.txt`
   lists goo.gl, bit.ly, ...; `resolve_short_url` follows the HTTP redirect first.
   `goo.gl/jkGHi0` becomes `drive.google.com/drive/folders/...`, so the drive rule
@@ -141,9 +147,12 @@ engines see it).
 - gdown prints the filenames before fetching; `engines.run` gives child
   processes `PYTHONIOENCODING=utf-8`, so a Drive folder with Japanese names does
   not die on the Windows ANSI code page.
-- Two refusals are *temporary*: `Cannot retrieve the public link` (not shared
-  any more, or the per-file access limit) and the "too many users have viewed"
-  quota. Both are a `FAILED` with a lane note, retried later.
+- Two refusals look alike but are not: `Cannot retrieve the public link` means
+  either "deleted" or "this file's access limit is spent". gdown words both the
+  same way, so `drive_file_gone` asks the download endpoint itself (a one-byte
+  range: 206 = alive, 404 = deleted). A deleted file is `OFFLINE`; a throttled
+  one is `FAILED` with a lane note, retried later. The "too many users have
+  viewed" quota is always temporary.
 - gdown rewrites the cookie file it is given, so it gets a throwaway copy of
   `config/cookies.txt`.
 - **Anonymous first, cookies only as a fallback.** The engine is for public

@@ -1,4 +1,5 @@
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -1009,7 +1010,12 @@ def test_clipboard_drain_is_skipped_when_capture_is_off(tmp_path):
     assert paths.clip_inbox.exists()
 
 
-def test_run_loop_drains_the_clipboard_while_paused(tmp_path, monkeypatch):
+def test_the_clipboard_waits_in_the_inbox_while_paused(tmp_path, monkeypatch):
+    """A pause must not touch queue.txt: a copied URL waits in the inbox.
+
+    The point of the pause is that the four record files can be opened and
+    edited; draining the clipboard into queue.txt would defeat it.
+    """
     from dredge import cli
     from dredge.engines import Engines
 
@@ -1022,28 +1028,28 @@ def test_run_loop_drains_the_clipboard_while_paused(tmp_path, monkeypatch):
     records.write_lines(paths.clip_inbox, ["https://example.com/a"])
 
     monkeypatch.setattr(cli, "_start_capture", lambda runtime: None)
-    monkeypatch.setattr(cli.menu, "wait", lambda *a, **k: None)
-
-    real_drain = cli.drain_clipboard
-
-    def drain_then_unpause(paths_, settings_):
-        added = real_drain(paths_, settings_)
-        paths_.paused.unlink(missing_ok=True)
-        return added
-
-    monkeypatch.setattr(cli, "drain_clipboard", drain_then_unpause)
 
     class Stop(Exception):
         pass
 
-    def stop(*args, **kwargs):
+    def unpause(*args, **kwargs):
+        # the paused branch polls; once unpaused the loop tries a pass again
+        paths.paused.unlink(missing_ok=True)
+
+    def resume(*args, **kwargs):
+        # still paused while the branch ran, so nothing has been queued yet
+        assert records.read_lines(paths.queue) == []
         raise Stop
 
-    monkeypatch.setattr(cli, "run_pass", stop)
+    monkeypatch.setattr(cli.menu, "wait", unpause)
+    monkeypatch.setattr(cli, "run_pass", resume)
 
     with pytest.raises(Stop):
         cli.run_loop(runtime, knowledge, Engines())
 
+    assert records.read_lines(paths.queue) == []
+    # resuming is what moves it: the inbox is drained by the next pass
+    assert orchestrator.drain_clipboard(paths, settings) == ["https://example.com/a"]
     assert records.read_lines(paths.queue) == ["https://example.com/a"]
 
 
@@ -1073,6 +1079,45 @@ def test_a_pause_mid_pass_stops_new_lanes(tmp_path, monkeypatch):
     assert stats is not None
     assert stats.ok_total == 1
     assert records.read_lines(paths.queue) == ["https://example.com/two"]
+
+
+def test_a_completion_after_the_pause_writes_nothing(tmp_path, monkeypatch):
+    """Once paused, the record files belong to the user.
+
+    A lane that was already running can still finish; its verdict must not
+    rewrite queue.txt or append to fail.txt, or an edit made while paused would
+    be lost. The link stays in queue.txt and is judged again on resume.
+    """
+    paths = Paths(tmp_path)
+    paths.ensure()
+    settings = Settings.load(
+        paths, dest_default=tmp_path / "dest", max_downloads=2,
+        no_capture=True, progress_every_seconds=0,
+    )
+    records.write_lines(paths.queue, [
+        "https://example.com/slow",
+        "https://example.com/bad",
+    ])
+
+    class SlowPausingWorker(FakeWorker):
+        def download(self, url, **kwargs):
+            if "slow" in url:
+                paths.paused.touch()
+                time.sleep(0.1)
+            else:
+                time.sleep(1.2)      # finishes after the pass has frozen the files
+            return super().download(url, **kwargs)
+
+    monkeypatch.setattr(orchestrator, "Worker", SlowPausingWorker)
+    stats = run_pass(
+        Runtime(paths, settings), Knowledge({}, SiteRule(host="*"), MirrorTable()),
+        orchestrator.Engines(), out=lambda message: None,
+    )
+
+    assert stats is not None
+    assert stats.failed == 1
+    assert records.read_lines(paths.fail) == []
+    assert "https://example.com/bad" in records.read_lines(paths.queue)
 
 
 def test_completion_line_colours_the_timestamp_and_url(tmp_path, monkeypatch):

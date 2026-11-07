@@ -23,7 +23,7 @@ from .config import Paths, Runtime, Settings, write_gallery_runtime
 from .destinations import apply_fallback, load_domains
 from .engines import Engines, run
 from .lock import AlreadyRunning, InstanceLock
-from .orchestrator import drain_clipboard, run_pass
+from .orchestrator import run_pass
 from .plan import split_line
 from .probe import run_mode
 from .tui import show_dredge_menu, toggle_paused
@@ -489,22 +489,27 @@ def run_loop(runtime: Runtime, knowledge: Knowledge, engines: Engines) -> int:
 
     capture = _start_capture(runtime)
 
+    waiting_shown = 0
     while True:
         if paths.paused.exists():
             if not runtime.pause_shown:
                 message = (
-                    "downloads are paused - queue.txt is waiting for review "
+                    "downloads are paused - queue.txt, fail.txt, skip.txt and "
+                    "offline.txt are settled and safe to edit "
                     "(P or menu 1 -> 7 resumes)."
                 )
                 print(f"{_ts()} {paint.yellow(message)}")
                 runtime.pause_shown = True
-            captured = drain_clipboard(paths, settings)
-            if captured:
+            # Nothing is written to the record files while paused: a copied URL
+            # waits in the clipboard inbox and is queued when the pass resumes.
+            waiting = len(records.read_lines(paths.clip_inbox))
+            if waiting and waiting != waiting_shown:
                 message = (
-                    f"clipboard: +{len(captured)} URL(s) queued "
-                    "(downloads stay paused)."
+                    f"clipboard: {waiting} URL(s) waiting in the inbox - "
+                    "they are queued when downloads resume."
                 )
                 print(f"{_ts()} {paint.cyan(message)}")
+            waiting_shown = waiting
             if settings.once:
                 break
             pause(1.0)

@@ -43,7 +43,7 @@ def toggle_paused(runtime: Runtime, knowledge: Knowledge) -> tuple[bool, str]:
     pause.parent.mkdir(parents=True, exist_ok=True)
     pause.touch()
     runtime.pause_shown = True
-    return True, "downloads paused - queue.txt waits; press P to resume."
+    return True, "downloads paused - the record files are settled in a moment; press P to resume."
 
 
 def show_checks_menu(

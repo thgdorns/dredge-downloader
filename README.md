@@ -138,13 +138,16 @@ copy config\gallery-dl.conf.example config\gallery-dl.conf
 | `--root DIR` | folder holding `config/`, `data/`, `logs/` (default: cwd) |
 
 Press **M** while it runs to open the menu. **P** pauses or resumes downloads
-without opening it; a pause stops new lanes, lets the active files finish, and
-keeps draining copied links into `queue.txt`. The lane board then shows a red
-`PAUSED` row with how many lanes are still finishing, so the press is visible
-even while a download runs. One press toggles once: a held or double-tapped key
-does not flip it back. Inside the menu: records check
-on/off, retry failed, retry skipped, skip failed, probe files, lane count,
-pause/resume, strict mode, and shortcuts to the record files. **Esc** goes back.
+without opening it. A pause writes the still-pending queue once, then stops
+writing to `queue.txt`, `fail.txt`, `skip.txt` and `offline.txt` for the rest of
+the pass, so those files can be opened and edited while everything already
+running finishes; copied links wait in the clipboard inbox and are queued when
+you resume. The lane board shows a red `PAUSED` row with how many lanes are
+still finishing, so the press is visible even while a download runs. One press
+toggles once: a held or double-tapped key does not flip it back. Inside the
+menu: records check on/off, retry failed, retry skipped, skip failed, probe
+files, lane count, pause/resume, strict mode, and shortcuts to the record
+files. **Esc** goes back.
 
 The lane count chosen in the menu (item 6) is written back to
 `config/dredge.conf` (`max_downloads = N`), so the next start uses it;

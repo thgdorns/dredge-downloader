@@ -269,14 +269,35 @@ def run_pass(
     progress_at = time.monotonic()
     progress_last: dict[int, tuple[str, bool]] = {}
     queued_canon = {key for u in ordered for key in knowledge.keys(split_line(u)[0])}
+    # Set when a pause is seen: the queue is written once more, then the four
+    # text files are left alone for the rest of the pass (see the loop below).
+    records_frozen = False
 
     board = _make_board(out)
     if board:
         board.start()
     try:
         while pending or active:
-            if paths.paused.exists() and not active:
-                break           # leave the rest in queue.txt
+            paused = paths.paused.exists()
+            if paused and not records_frozen:
+                # A pause settles the four text files once and then leaves them
+                # alone: everything still pending goes to queue.txt, then no
+                # write of ours can land in queue.txt, fail.txt, skip.txt or
+                # offline.txt until the pass ends, so they can be opened and
+                # edited without anything overwriting the edits.
+                if not settings.dry_run:
+                    _save_queue(paths, remaining, ordered)
+                records_frozen = True
+                out(_line(
+                    stamp,
+                    "paused: the queue and the record files are settled - "
+                    "nothing writes to them until you resume.",
+                    "yellow",
+                ))
+            if records_frozen and not active:
+                # A pause always ends the pass: resuming re-reads the files, so
+                # whatever was edited in the meantime is what gets downloaded.
+                break
             if quota_until:
                 now_quota = time.time()
                 for name in [h for h, until in quota_until.items() if until <= now_quota]:
@@ -394,7 +415,7 @@ def run_pass(
                 _sleep(max(1.0, min(30.0, left)), runtime, knowledge, board)
 
             _sleep(0.5, runtime, knowledge, board)
-            picked = _catch_up_queue(
+            picked = [] if records_frozen else _catch_up_queue(
                 paths, knowledge, ordered, pending, remaining, queued_canon, settings
             )
             if picked:
@@ -443,7 +464,7 @@ def run_pass(
                         "darkgray",
                     ))
 
-            if not settings.no_capture and not settings.dry_run:
+            if not settings.no_capture and not settings.dry_run and not records_frozen:
                 captured = state.read_clip_inbox(paths.clip_inbox)
                 if captured:
                     added, rejected = _capture(
@@ -504,7 +525,7 @@ def run_pass(
                 record_line = lane.line or lane.url
                 if record_line in remaining:
                     remaining.remove(record_line)
-                if not settings.dry_run:
+                if not settings.dry_run and not records_frozen:
                     _save_queue(paths, remaining, ordered)
                 _settle(queued_canon, runtime, knowledge, record_line, verdict, rows)
                 if verdict.startswith("AUTH|"):
@@ -542,18 +563,20 @@ def run_pass(
                         # this line in queue.txt as a new link and schedules it
                         # a second time on every pass around the loop.
                         queued_canon.update(knowledge.keys(split_line(record_line)[0]))
-                        if not settings.dry_run:
+                        if not settings.dry_run and not records_frozen:
                             _save_queue(paths, remaining, ordered)
                         pending.append(lane.index - 1)   # lane.index is 1-based
                         continue
-                    records.append_lines(paths.fail, [record_line])
+                    if not records_frozen:
+                        records.append_lines(paths.fail, [record_line])
                     stats.failed += 1
                     _mark_failed(runtime, knowledge, lane.url)
                 elif verdict.startswith("QUOTA|"):
                     # The quota is per IP, so one answer applies to every link on
                     # the host. Park them for the window instead of failing each.
                     blocked = verdict[6:]
-                    records.append_lines(paths.fail, [record_line])
+                    if not records_frozen:
+                        records.append_lines(paths.fail, [record_line])
                     stats.failed += 1
                     _mark_failed(runtime, knowledge, lane.url)
                     if settings.quota_block_minutes > 0:
@@ -569,7 +592,8 @@ def run_pass(
                             "yellow",
                         ))
                 elif verdict == "OFFLINE":
-                    records.append_lines(paths.offline, [record_line])
+                    if not records_frozen:
+                        records.append_lines(paths.offline, [record_line])
                     stats.offline += 1
                     _mark_failed(runtime, knowledge, lane.url)
                 elif verdict.startswith("PREVIEW|"):
@@ -578,11 +602,13 @@ def run_pass(
                     # will fetch the originals until the archive re-imports the
                     # post, so park it: skip.txt keeps it out of the retry loop
                     # and out of fail.txt, which is for real errors.
-                    records.append_lines(paths.skip, [record_line])
+                    if not records_frozen:
+                        records.append_lines(paths.skip, [record_line])
                     stats.preview += 1
                     _mark_skip(runtime, knowledge, lane.url)
                 elif not verdict.startswith("OK|"):
-                    records.append_lines(paths.fail, [record_line])
+                    if not records_frozen:
+                        records.append_lines(paths.fail, [record_line])
                     stats.failed += 1
                     _mark_failed(runtime, knowledge, lane.url)
                 else:

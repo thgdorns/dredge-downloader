@@ -54,7 +54,8 @@ adds the boring parts:
   `yt-dlp --flat-playlist` in seconds and its items are queued for the next
   pass, instead of crawling the page one item at a time;
 - **unattended**: with an empty queue it waits, watches the clipboard, and
-  starts a new pass by itself.
+  starts a new pass by itself. A copy that reaches the clipboard twice is one
+  queue line, and a link that is already waiting is not reported as a refusal.
 
 Nothing here names a site. Everything site-specific is a line in
 `config/sites.txt`.

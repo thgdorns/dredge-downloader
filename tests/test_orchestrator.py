@@ -11,7 +11,10 @@ from dredge.orchestrator import (
     _catch_up_queue,
     _fallback,
     _files_summary,
+    _fold,
     _free_slot,
+    _mark_failed,
+    _settle,
     _take_next,
     run_pass,
 )
@@ -511,12 +514,124 @@ def test_capture_counts_added_and_rejected(tmp_path):
 
     assert added == ["https://example.com/new"]
     assert rejected == {
-        "already queued": 1,
         "already downloaded": 1,
         "in skip.txt": 1,
         "failed before": 1,
         "not a URL": 1,
     }
+
+
+def test_a_link_already_waiting_is_not_reported_as_rejected(tmp_path):
+    """A second copy of a queued link must not look like Dredge refusing it.
+
+    The clipboard can deliver one copy twice (different text flavours), and the
+    URL may simply still be waiting; either way the first copy already queued
+    it, so the only honest thing to say is nothing.
+    """
+    paths = Paths(tmp_path)
+    settings = Settings.load(paths, dest_default=tmp_path / "dest")
+    runtime = Runtime(paths, settings)
+    knowledge = Knowledge({}, SiteRule(host="*"), MirrorTable())
+    queued = {"example.com/waiting"}
+
+    added, rejected = _capture(
+        ["https://example.com/waiting", "https://example.com/waiting"],
+        queued,
+        runtime,
+        knowledge,
+        settings,
+    )
+
+    assert added == []
+    assert rejected == {}
+
+
+def test_a_finished_link_is_no_longer_queued(tmp_path):
+    """Re-pasting a link that just downloaded must say "already downloaded".
+
+    The pass kept every link it had ever scheduled in the set the clipboard
+    check consults, so a link that had left queue.txt still answered "already
+    queued" - even though it was downloaded (or failed) minutes earlier.
+    """
+    paths = Paths(tmp_path)
+    settings = Settings.load(
+        paths, dest_default=tmp_path / "dest", retry_failed=False
+    )
+    runtime = Runtime(paths, settings)
+    knowledge = Knowledge({}, SiteRule(host="*"), MirrorTable())
+    queued = {"example.com/done", "example.com/failed"}
+
+    _settle(
+        queued, runtime, knowledge,
+        "https://example.com/done", "OK|gallery-dl", ["2026-11-07 17:44:55\tx\ta.png\t1"],
+    )
+    _settle(queued, runtime, knowledge, "https://example.com/failed", "ERROR|x", [])
+    _mark_failed(runtime, knowledge, "https://example.com/failed")
+
+    assert queued == set()
+
+    added, rejected = _capture(
+        ["https://example.com/done", "https://example.com/failed"],
+        queued,
+        runtime,
+        knowledge,
+        settings,
+    )
+
+    assert added == []
+    assert rejected == {"already downloaded": 1, "failed before": 1}
+
+
+def test_a_success_without_files_stays_queueable(tmp_path):
+    """No archive row means nothing was recorded, so the link is not "known"."""
+    paths = Paths(tmp_path)
+    settings = Settings.load(paths, dest_default=tmp_path / "dest")
+    runtime = Runtime(paths, settings)
+    knowledge = Knowledge({}, SiteRule(host="*"), MirrorTable())
+    queued = {"example.com/empty"}
+
+    _settle(queued, runtime, knowledge, "https://example.com/empty", "OK|gallery-dl", [])
+
+    assert queued == set()
+    assert runtime.seen == set()
+
+
+def test_a_locked_archive_keeps_its_rows(tmp_path, monkeypatch):
+    """An editor holding downloads.tsv must not end the pass or lose rows.
+
+    The merge replaces the archive atomically, and a handle without delete
+    sharing (Notepad, opened from the files menu) makes that fail. The rows
+    stay parked in fold-pending.tsv until the next merge can write.
+    """
+    from dredge import archive as archive_mod
+
+    paths = Paths(tmp_path)
+    paths.ensure()
+    archive_mod.append_pending(
+        paths.fold_pending,
+        ["2026-11-07 17:00:00\thttps://example.com/a\ta.png\t1"],
+    )
+    knowledge = Knowledge({}, SiteRule(host="*"), MirrorTable())
+    runtime = Runtime(paths, Settings.load(paths, dest_default=tmp_path / "dest"))
+    said: list[str] = []
+
+    real_replace = Path.replace
+
+    def blocked(self, target):
+        if Path(target) == paths.archive:
+            raise PermissionError(13, "The process cannot access the file")
+        return real_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", blocked)
+
+    assert _fold(paths, runtime, knowledge, said.append, lambda: "12:00:00") is None
+    assert paths.fold_pending.read_text(encoding="utf-8").count("\n") == 1
+    assert any("could not be written" in line for line in said)
+
+    monkeypatch.setattr(Path, "replace", real_replace)
+    assert _fold(paths, runtime, knowledge, said.append, lambda: "12:00:01") == 1
+    assert "example.com/a" in paths.archive.read_text(encoding="utf-8")
+    assert paths.fold_pending.read_text(encoding="utf-8").strip() == ""
 
 
 def test_a_terminal_gets_one_line_per_lane(tmp_path, monkeypatch):

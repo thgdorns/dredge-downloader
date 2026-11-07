@@ -470,6 +470,10 @@ def run_pass(
                             f"clipboard: {total} URL(s) skipped ({parts}).",
                             "darkgray",
                         ))
+                        _log_line(
+                            stats.log,
+                            f"[{stamp()}] clipboard: {total} URL(s) skipped ({parts}).",
+                        )
 
             finished = [slot for slot, lane in active.items() if not lane.thread.is_alive()]
             for slot in finished:
@@ -485,26 +489,23 @@ def run_pass(
                             pending_rows >= settings.fold_batch_rows
                             or (time.monotonic() - pending_since) >= settings.fold_batch_seconds
                         ):
-                            merged_now = merge_pending(
-                                paths.fold_pending, paths.archive,
-                                runtime.seen, runtime.archived, knowledge,
-                            )
-                            runtime.arc_sig = state.archive_signature(paths.archive)
-                            pending_rows = 0
-                            pending_since = time.monotonic()
-                            if merged_now.total:
-                                out(_line(
-                                    stamp,
-                                    f"archive: {merged_now.total} row(s) merged.",
-                                    "darkgray",
-                                ))
-
-                if (lane.line or lane.url) in remaining:
-                    remaining.remove(lane.line or lane.url)
-                if not settings.dry_run:
-                    _save_queue(paths, remaining, ordered)
+                            merged_now = _fold(paths, runtime, knowledge, out, stamp)
+                            if merged_now is not None:
+                                pending_rows = 0
+                                pending_since = time.monotonic()
+                                if merged_now:
+                                    out(_line(
+                                        stamp,
+                                        f"archive: {merged_now} row(s) merged.",
+                                        "darkgray",
+                                    ))
 
                 record_line = lane.line or lane.url
+                if record_line in remaining:
+                    remaining.remove(record_line)
+                if not settings.dry_run:
+                    _save_queue(paths, remaining, ordered)
+                _settle(queued_canon, runtime, knowledge, record_line, verdict, rows)
                 if verdict.startswith("AUTH|"):
                     # The site is pinned to gallery-dl and it has no token yet.
                     # Run its login flow now (interactive), then retry the link:
@@ -535,6 +536,11 @@ def run_pass(
                                 "yellow",
                             ))
                         remaining.append(record_line)
+                        # The retry is queued again, so the clipboard check must
+                        # see it as waiting; otherwise the queue catch-up treats
+                        # this line in queue.txt as a new link and schedules it
+                        # a second time on every pass around the loop.
+                        queued_canon.update(knowledge.keys(split_line(record_line)[0]))
                         if not settings.dry_run:
                             _save_queue(paths, remaining, ordered)
                         pending.append(lane.index - 1)   # lane.index is 1-based
@@ -614,14 +620,11 @@ def run_pass(
                     )
 
         if not settings.dry_run:
-            merged_end = merge_pending(
-                paths.fold_pending, paths.archive, runtime.seen, runtime.archived, knowledge
-            )
-            runtime.arc_sig = state.archive_signature(paths.archive)
-            if merged_end.total:
+            merged_end = _fold(paths, runtime, knowledge, out, stamp)
+            if merged_end:
                 out(_line(
                     stamp,
-                    f"archive: {merged_end.total} row(s) merged.",
+                    f"archive: {merged_end} row(s) merged.",
                     "darkgray",
                 ))
 
@@ -770,6 +773,32 @@ def _warn_pages(rows: list[str], out, stamp, settings: Settings) -> None:
                 ))
 
 
+def _settle(
+    queued: set[str],
+    runtime: Runtime,
+    knowledge: Knowledge,
+    line: str,
+    verdict: str,
+    rows: list[str],
+) -> None:
+    """A finished link leaves the queue; a successful one counts as downloaded.
+
+    ``queued`` is what the clipboard check consults. Leaving a finished link in
+    it made the next paste of that URL answer "already queued" for the rest of
+    the pass, long after it had left queue.txt - and while it was in fact
+    downloaded or failed.
+    """
+    url = split_line(line)[0]
+    keys = knowledge.keys(url)
+    queued.difference_update(keys)
+    if not verdict.startswith("OK|") or not rows:
+        return
+    runtime.seen.update(keys)
+    ident = knowledge.seen_id(url)
+    if ident:
+        runtime.seen.add(ident)
+
+
 def _mark_failed(runtime: Runtime, knowledge: Knowledge, url: str) -> None:
     keys = knowledge.keys(url)
     if not keys:
@@ -778,6 +807,36 @@ def _mark_failed(runtime: Runtime, knowledge: Knowledge, url: str) -> None:
     ident = knowledge.seen_id(keys[0])
     if ident:
         runtime.failed.add(ident)
+
+
+def _fold(
+    paths: Paths,
+    runtime: Runtime,
+    knowledge: Knowledge,
+    out,
+    stamp,
+) -> int | None:
+    """Merge parked rows into downloads.tsv; ``None`` when it is locked.
+
+    The merge replaces downloads.tsv atomically, which needs delete access to
+    the old file. An editor holding it open (the files menu opens it in
+    Notepad) refuses that, and the exception used to end the whole pass. The
+    rows stay in fold-pending.tsv, so the next merge picks them up.
+    """
+    try:
+        merged = merge_pending(
+            paths.fold_pending, paths.archive, runtime.seen, runtime.archived, knowledge
+        )
+    except OSError as exc:
+        out(_line(
+            stamp,
+            "archive: downloads.tsv could not be written "
+            f"({exc.strerror or exc}) - its rows are kept for the next merge.",
+            "yellow",
+        ))
+        return None
+    runtime.arc_sig = state.archive_signature(paths.archive)
+    return merged.total
 
 
 def _save_queue(paths: Paths, remaining: list[str], ordered: list[str]) -> None:
@@ -876,7 +935,11 @@ def _capture(
             reject("not a URL")
             continue
         if url in queued or any(key in queued for key in keys):
-            reject("already queued")
+            # Already scheduled: the same copy can reach the clipboard twice
+            # (different text flavours), and a link can be pasted again while it
+            # waits. Nothing is lost and nothing can be done, so this is not a
+            # rejection - reporting it as "already queued" made every copy look
+            # as if Dredge had refused the link.
             continue
         ident = knowledge.seen_id(keys[0])
         if runtime.archive_check and (

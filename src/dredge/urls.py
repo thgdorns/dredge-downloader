@@ -247,6 +247,17 @@ def seen_id(url: str, rule_id: str = "") -> str:
     return ""
 
 
+def apply_rewrite(url: str, rewrite: str) -> str:
+    """Apply a rule's ``REGEX=>URL`` rewrite, ignoring a broken pattern."""
+    if not url or not rewrite or "=>" not in rewrite:
+        return url
+    pattern, _, replacement = rewrite.partition("=>")
+    try:
+        return re.sub(pattern, replacement, url, count=1)
+    except re.error:
+        return url
+
+
 def dl_url(url: str, *, strip: re.Pattern[str] | None = None,
            mirrors: MirrorTable | None = None, rewrite: str = "") -> str:
     """The URL actually handed to the engines.
@@ -257,13 +268,7 @@ def dl_url(url: str, *, strip: re.Pattern[str] | None = None,
     """
     if not url:
         return ""
-    u = url
-    if rewrite and "=>" in rewrite:
-        pattern, _, replacement = rewrite.partition("=>")
-        try:
-            u = re.sub(pattern, replacement, u, count=1)
-        except re.error:
-            pass
+    u = apply_rewrite(url, rewrite)
     hs = u.find("://")
     if hs >= 0 and mirrors:
         after = u[hs + 3:]
@@ -374,6 +379,11 @@ class Knowledge:
 
     def canon(self, url: str) -> str:
         rule = self.rule(url)
+        if rule and rule.rewrite:
+            # A rule that rewrites the URL also decides what the link *means*: a
+            # pixiv profile link carrying illust_id= is that artwork, not the
+            # user page, so identity must follow the rewrite too.
+            url = apply_rewrite(url, rule.rewrite)
         return canon(
             url,
             strip=self.strip,
@@ -391,6 +401,8 @@ class Knowledge:
         rule = self.rule(url)
         if not rule or not rule.id:
             return ""
+        if rule.rewrite:
+            url = apply_rewrite(url, rule.rewrite)
         value = seen_id(url, rule.id)
         if not value:
             return ""

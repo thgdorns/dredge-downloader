@@ -258,6 +258,13 @@ engines see it).
   older archive rows were keyed with `/en/`, which is what made retried links
   look new. `build_plan` now also drops a second shape of the same id in one
   queue, and `downloads.tsv` lookups match through the id.
+- **A profile link carrying `illust_id=` is that artwork.** Copying a thumbnail
+  from a user's grid gives
+  `…/users/<user>?p=9#ppixiv?view=illust&illust_id=<art>&page=3`; the path is the
+  *user* page, so keying on it made every such link the same download (and the
+  id rule matched the user id). `rewrite=` turns it into
+  `/artworks/<art>#ppixiv?page=3` before anything else, and `canon`/`seen_id`
+  apply the same rewrite so the identity is the artwork, not the profile.
 - **Ugoira downloads become a video, not a zip.** `extractor.pixiv.postprocessors`
   in `config/gallery-dl.conf` holds `{"name": "ugoira", "extension": "webm"}`.
   It must live *under the extractor*: a top-level `postprocessors` list is

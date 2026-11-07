@@ -22,6 +22,38 @@ def test_canon_keeps_path_case():
     assert canon("https://example.com/Video/AbC") == "example.com/Video/AbC"
 
 
+def test_a_rewritten_url_also_decides_identity():
+    """A profile link carrying illust_id= is that artwork, not the user page."""
+    from dredge.sites import MirrorTable, SiteRule, parse_rule
+    from dredge.urls import Knowledge
+
+    rule = parse_rule(
+        r"pixiv.net id=\d{6,} "
+        r"rewrite=^(https?://(?:www\.)?pixiv\.net/(?:[a-z]{2}/)?users/\d+[^#]*)#ppixiv\?"
+        r"[^#]*illust_id=(\d+)&page=(\d+)=>https://www.pixiv.net/artworks/\2#ppixiv?page=\3"
+    )
+    knowledge = Knowledge(
+        {"pixiv.net": rule}, SiteRule(host="*"), MirrorTable()
+    )
+    url = (
+        "https://www.pixiv.net/en/users/77326823?p=9"
+        "#ppixiv?view=illust&illust_id=139008520&page=3"
+    )
+
+    assert knowledge.dl_url(url) == (
+        "https://www.pixiv.net/artworks/139008520#ppixiv?page=3"
+    )
+    assert knowledge.canon(url) == "pixiv.net/artworks/139008520?page=3"
+    assert knowledge.seen_id(url) == "id:pixiv.net:139008520#p3"
+
+
+def test_a_broken_rewrite_is_ignored():
+    from dredge.urls import apply_rewrite
+
+    assert apply_rewrite("https://example.com/a", "([=>x") == "https://example.com/a"
+    assert apply_rewrite("https://example.com/a", "") == "https://example.com/a"
+
+
 def test_canon_keeps_the_viewer_page_from_the_fragment():
     """#ppixiv?page=5 selects one image, so pages are separate downloads."""
     assert canon("https://www.pixiv.net/artworks/151761889#ppixiv?page=5") == (

@@ -88,6 +88,7 @@ def test_the_scan_ignores_attachment_urls(tmp_path):
     assert '<table id="t">' in text
     assert 'data-key="value"' in text
     assert 'id="q"' in text
+    assert 'class="author"' not in text       # the file sits at the root
 
 
 def test_a_password_hint_yields_its_value():
@@ -165,6 +166,8 @@ def test_one_row_per_value_with_every_source(tmp_path):
     assert "https://example.com/two" in text
     assert text.count("a.jpg.json") == 2      # both sidecars, one row per value
     assert text.count("b.jpg.json") == 2
+    assert text.count("\tpost") == 2          # value<TAB>author in both rows
+    assert 'class="author"' in text
 
 
 def test_file_host_links_are_queued_into_their_folder(tmp_path):
@@ -183,7 +186,7 @@ def test_file_host_links_are_queued_into_their_folder(tmp_path):
 
     queue = tmp_path / "data" / "queue.txt"
     queued = queue.read_text(encoding="utf-8").splitlines()
-    folder = downloads / "author" / "123456"
+    folder = downloads / "author"
     assert queued == [
         f"https://drive.google.com/file/d/abc/view\t{folder}",
         f"https://mega.nz/file/xyz#key\t{folder}",

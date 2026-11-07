@@ -27,11 +27,14 @@ it is sent to the recycle bin (see ``--keep-metadata``).
 
 Duplicate values are merged into one row, with every file that contained it
 joined by ``;``. A mega/mediafire/drive link is not reported at all: it is
-appended to ``data/queue.txt`` as ``url<TAB>folder``, pointing at the folder the
-link was found in, so dredge downloads it next to the post it belongs to.
+appended to ``data/queue.txt`` as ``url<TAB>folder``, pointing at the author's
+folder (the first subfolder under the scanned root), so dredge downloads it
+next to the rest of that author's files.
 
 Each HTML page is a self-contained sortable/filterable table with two columns:
-    1. value -- the URL or password that was found
+    1. value -- the URL or password that was found, followed by a literal tab
+       and the author's name (the first subfolder under the scan root), so a
+       row can be copied into queue.txt as ``value<TAB>author``
     2. Found in -- the absolute path(s) of the file(s) that contained it
 
 Examples:
@@ -356,6 +359,28 @@ def merge_rows(rows: list[tuple[str, str]]) -> list[tuple[str, str]]:
     return [(value, ";".join(paths)) for value, paths in merged.items()]
 
 
+def author_of(path: Path, root: Path) -> str:
+    """The first folder under the scan root, or ``""`` for a root file."""
+    try:
+        relative = path.relative_to(root)
+    except ValueError:
+        return ""
+    return relative.parts[0] if len(relative.parts) > 1 else ""
+
+
+def author_for(paths: str, root: Path | None) -> str:
+    """The first author among a row's source paths, or ``""``."""
+    if root is None:
+        return ""
+    for raw in paths.split(";"):
+        if not raw:
+            continue
+        author = author_of(Path(raw), root)
+        if author:
+            return author
+    return ""
+
+
 def queue_links(path: Path, rows: list[tuple[str, str]]) -> tuple[int, int]:
     """Append ``url<TAB>folder`` lines; returns ``(added, already queued)``."""
     if not rows:
@@ -438,9 +463,19 @@ def _value_html(value: str) -> str:
 
 
 def render_report(
-    title: str, rows: list[tuple[str, str]], *, files: int, generated: str | None = None
+    title: str,
+    rows: list[tuple[str, str]],
+    *,
+    files: int,
+    generated: str | None = None,
+    root: Path | None = None,
 ) -> str:
-    """One self-contained sortable/filterable HTML table."""
+    """One self-contained sortable/filterable HTML table.
+
+    When ``root`` is the scan folder, each value is followed by a literal tab
+    and the first subfolder it came from (the author), so the cell can be
+    copied straight into ``queue.txt`` as ``value<TAB>author``.
+    """
     stamp = generated or time.strftime("%Y-%m-%d %H:%M")
     parts = [
         "<!doctype html>",
@@ -464,15 +499,20 @@ def render_report(
             "th{position:sticky;top:0;background:#fff;cursor:pointer;user-select:none;"
             "white-space:nowrap}"
             "th.sorted.asc::after{content:' \\25B2'}th.sorted.desc::after{content:' \\25BC'}"
-            "td.value{word-break:break-all}td.paths{color:#555;word-break:break-word}"
+            "td.value{white-space:pre-wrap;word-break:break-all}"
+            "td.paths{color:#555;word-break:break-word}"
+            ".author{color:#666;font-size:.9em}"
+            ".hint{color:#666;margin:-.6rem 0 1rem;font-size:.9rem}"
             "a{color:#0645ad}code{font-size:.95em}"
             "@media (prefers-color-scheme:dark){body{background:#111;color:#eee}"
             "th{background:#111}th,td{border-color:#333}.controls input,.controls button{"
-            "border-color:#555}a{color:#8ab4f8}td.paths{color:#aaa}}"
+            "border-color:#555}a{color:#8ab4f8}td.paths{color:#aaa}"
+            ".author,.hint{color:#aaa}}"
         ),
         "</style></head><body>",
         f"<h1>{html.escape(title)}</h1>",
         f'<p class="meta">{len(rows)} unique value(s) from {files} file(s); generated {stamp}</p>',
+        '<p class="hint">Copy a row\'s value as <code>value&lt;TAB&gt;author</code> for queue.txt.</p>',
         '<div class="controls">',
         '<input id="q" type="search" placeholder="Filter value or path..." aria-label="Filter">',
         '<button id="reset" type="button">Reset</button>',
@@ -486,9 +526,13 @@ def render_report(
             f'<div class="path">{html.escape(path)}</div>'
             for path in paths.split(";") if path
         )
+        value_html = _value_html(value)
+        author = author_for(paths, root)
+        if author:
+            value_html += f'<span class="author">\t{html.escape(author)}</span>'
         parts.append(
             '<tr class="row">'
-            f'<td class="value">{_value_html(value)}</td>'
+            f'<td class="value">{value_html}</td>'
             f'<td class="paths">{cells}</td>'
             "</tr>"
         )
@@ -503,10 +547,19 @@ def render_report(
 
 
 def write_html(
-    path: Path, title: str, rows: list[tuple[str, str]], *, files: int
+    path: Path,
+    title: str,
+    rows: list[tuple[str, str]],
+    *,
+    files: int,
+    root: Path | None = None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(render_report(title, rows, files=files), encoding="utf-8", newline="")
+    path.write_text(
+        render_report(title, rows, files=files, root=root),
+        encoding="utf-8",
+        newline="",
+    )
 
 
 # --------------------------------------------------------------------------
@@ -794,16 +847,19 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     # File-host links are the point of the scan: they are queued into the
-    # folder the link was found in, and leave the report.
+    # author folder they were found under (the first subfolder beneath the scan
+    # root), and leave the report.
     report_rows: list[tuple[str, str]] = []
     queue_rows: list[tuple[str, str]] = []
     for url, paths in table:
         if args.no_queue or not is_filehost(url):
             report_rows.append((url, paths))
             continue
-        queue_rows.append((url, str(Path(paths.split(";", 1)[0]).parent)))
+        author = author_for(paths, folder)
+        destination = folder / author if author else folder
+        queue_rows.append((url, str(destination)))
 
-    write_html(output, "URL scan", report_rows, files=len(scanned))
+    write_html(output, "URL scan", report_rows, files=len(scanned), root=folder)
     if not args.no_passwords:
         write_html(passwords_output, "Passwords", password_table, files=len(scanned))
 

@@ -123,6 +123,14 @@ engines see it).
   quota. Both are a `FAILED` with a lane note, retried later.
 - gdown rewrites the cookie file it is given, so it gets a throwaway copy of
   `config/cookies.txt`.
+- **A folder that is public but not shared with the logged-in account lists as
+  empty.** With the jar, gdown asks Drive as that account and gets zero entries:
+  exit 0, `Download completed`, nothing on disk, and the pass records a bare
+  `FAILED` with no reason. The same link downloads fine anonymously. The worker
+  therefore retries a folder link once with `--no-cookies` when the cookied run
+  produced no files (2026-11-07: 34 folders in one pass, one of them 1.16 GB,
+  recovered this way). A genuinely private folder needs the jar and simply fails
+  again.
 
 ## YouTube - youtube.com / youtu.be
 

@@ -728,15 +728,28 @@ class Worker:
             args = [exe, "dl", "--path", str(dest), "--no-ask-password",
                     "--ignore-config-file", dl]
         elif name == "gdown":
-            # -c resumes a partial file and skips a finished one; --retries
-            # covers the transient 403s Drive answers under load.
-            args = [exe, "-c", "--retries", "3", "-O", self._gdown_output(dl, dest)]
-            args += self._gdown_cookies()
-            args.append(dl)
+            args = self._gdown_args(exe, dl, dest, cookies=True)
         else:
             args = [exe, "-o", str(dest), "-m", "4", "-t", "2", dl]
         rc, out = run(args, cwd=self.paths.root, sink=self._sink, stop_on=_QUOTA_STOP)
         moved = sorted(_file_snapshot(dest) - before)
+        if name == "gdown" and "/folders/" in dl and not moved and (
+            "--no-cookies" not in args
+        ):
+            # gdown lists a folder through the cookie jar, i.e. as the logged-in
+            # account. A folder that is public but not shared with that account
+            # comes back as an empty listing: exit 0, nothing to fetch, and the
+            # pass records a bare FAILED. The same link downloads fine without
+            # cookies, so retry once anonymously. Private folders need the
+            # cookies and simply fail again.
+            self._lane(
+                "[gdown] the cookie jar returned an empty folder - retrying anonymously"
+            )
+            rc, out = run(
+                self._gdown_args(exe, dl, dest, cookies=False),
+                cwd=self.paths.root, sink=self._sink, stop_on=_QUOTA_STOP,
+            )
+            moved = sorted(_file_snapshot(dest) - before)
         if moved:
             try:
                 files_manifest.write_text(
@@ -766,6 +779,19 @@ class Worker:
                     "or the access limit for this file is spent - retry later"
                 )
         return None
+
+    def _gdown_args(
+        self, exe: str, url: str, dest: Path, *, cookies: bool
+    ) -> list[str]:
+        """The gdown command line, with or without the browser cookie jar.
+
+        ``-c`` resumes a partial file and skips a finished one; ``--retries``
+        covers the transient 403s Drive answers under load.
+        """
+        args = [exe, "-c", "--retries", "3", "-O", self._gdown_output(url, dest)]
+        args += self._gdown_cookies() if cookies else ["--no-cookies"]
+        args.append(url)
+        return args
 
     def _gdown_output(self, url: str, dest: Path) -> str:
         """Where gdown writes: a folder link gets a folder named after its id."""

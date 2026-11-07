@@ -281,6 +281,47 @@ def test_keep_rule_keeps_only_the_first_file(tmp_path, monkeypatch):
     assert row.split("\t")[2] == "first.jpg"
 
 
+def test_a_public_drive_folder_is_retried_without_the_cookie_jar(
+    tmp_path, monkeypatch
+):
+    """A folder not shared with the logged-in account lists as empty.
+
+    gdown exits 0 with nothing to fetch, so the pass would record a bare
+    FAILED. The same link is public and downloads anonymously, so the worker
+    retries once without cookies and takes the files.
+    """
+    rule = parse_rule('drive.google.com engine=gdown')
+    paths = Paths(tmp_path)
+    settings = Settings.load(paths, dest_default=tmp_path / 'dest', dry_run=False)
+    # Without a jar the first attempt is anonymous already and never empty.
+    paths.cookies.parent.mkdir(parents=True, exist_ok=True)
+    paths.cookies.write_text('# Netscape HTTP Cookie File\n', encoding='utf-8')
+    calls: list[list[str]] = []
+
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+        calls.append(list(args))
+        if '--no-cookies' in args:
+            target = Path(args[args.index('-O') + 1])
+            target.mkdir(parents=True, exist_ok=True)
+            (target / 'clip.mp4').write_bytes(b'x' * 200_000)
+        return 0, 'Download completed'
+
+    monkeypatch.setattr(worker_module, 'run', fake)
+    worker = Worker(paths, settings, Engines(gdown='gdown'), knowledge(rule))
+    verdict = worker.download(
+        'https://drive.google.com/drive/folders/FOLDERID?usp=sharing',
+        dest=tmp_path / 'dest',
+        lane_log=tmp_path / 'lane1.log',
+        result=tmp_path / 'lane1.result',
+        archive=tmp_path / 'lane1.archive',
+    )
+
+    assert verdict == 'OK|gdown'
+    assert len(calls) == 2
+    assert '--no-cookies' not in calls[0]
+    assert '--no-cookies' in calls[1]
+
+
 def test_filehost_engine_downloads_into_the_destination(tmp_path, monkeypatch):
     rule = parse_rule('mega.nz engine=megadl')
     paths = Paths(tmp_path)

@@ -18,6 +18,12 @@ engines see it).
   (`n1`-`n4.kemono.cr`) stopped answering TCP 443, and `img.kemono.cr` only
   serves thumbnails. So a kemono link is fetched from pawchive and the twin is
   never probed (`mirrors.txt`, `probe=` on coomer for its own shards).
+- **The two hosts are aliases, not a one-way rewrite.** `alias kemono.cr
+  pawchive.pw` makes `/patreon/user/<id>/post/<id>` the *same* download in either
+  shape, so a pawchive link whose post was recorded from kemono in the past is
+  skipped instead of fetched again (and 404ing, since pawchive never archived
+  those files). A plain `<from> <to>` mapping keys only the kemono side, which is
+  how a pawchive URL kept looking new.
 - **A post can exist while its file does not.** The API returns the post (title,
   description, preview) and gallery-dl then warns
   `Incomplete/Missing file import ('pending')`; the file URL answers 404 until

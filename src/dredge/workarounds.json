@@ -131,7 +131,7 @@
         "config/sites.txt:n.sfw.video",
         "config/generic-sites.txt"
       ],
-      "retire_when": "yt-dlp has a dedicated n.sfw.video extractor that exposes the uploader; add %(uploader)s to the template then",
+      "retire_when": "yt-dlp has a dedicated n.sfw.video extractor that exposes the author; add %(uploader)s/ (display name, not the handle) to the template and file the existing videos into author folders, inside each drive",
       "issue": "",
       "checks": [
         {

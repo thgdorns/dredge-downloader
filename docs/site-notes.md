@@ -202,14 +202,16 @@ engines see it).
 - **`-S res` is required.** The generic extractor marks the LQ rendition
   `quality=1`; yt-dlp's default `b` then picks LQ. Sorting by resolution picks
   1080p (480/720/1080 carry real heights).
-- **One flat folder per drive, no subfolders.** `tpl` has no `%(uploader)s`, so
-  a video and its `.description` sit side by side in `n.sfw.video/`, on `G:`
-  and on `D:` alike. The author is not exposed to the engine anyway: the page
-  has a `block-user` block linking to `/members/<id>/` (for example `ratzy`),
-  but the generic extractor leaves `uploader` empty. Keep it flat until a
-  dedicated extractor exposes the author; if the layout is ever reorganised,
-  flatten inside each drive rather than moving files between them.
-  `workarounds.json` → `nsfw-video-generic` watches for that extractor.
+- **One flat folder per drive for now; author subfolders are the planned
+  layout.** `tpl` has no `%(uploader)s`, so a video and its `.description` sit
+  side by side in `n.sfw.video/`, on `G:` and on `D:` alike. The author is not
+  exposed to the engine: the page has a `block-user` block linking to
+  `/members/<id>/` (for example `ratzy`), but the generic extractor leaves
+  `uploader` empty. When a dedicated extractor exposes the author, add
+  `%(uploader)s/` — the display name, not the handle — to the template and file
+  the existing videos into those folders, inside each drive; never move files
+  between drives to do it. `workarounds.json` → `nsfw-video-generic` watches
+  for that extractor.
 
 ## SpankBang
 

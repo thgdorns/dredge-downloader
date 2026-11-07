@@ -173,6 +173,10 @@ def canon(
         frag = u[fi + 1:]
         u = u[:fi]
     keep_fragment = bool(frag and keep_re.search(frag))
+    # A viewer page in the fragment (#ppixiv?page=5) selects one image of a post,
+    # so it is part of what the link means: pages of one post are separate
+    # downloads, not duplicates of each other.
+    page = None if keep_fragment else re.search(r"[?&]page=(\d+)", frag)
 
     query = ""
     qi = u.find("?")
@@ -210,6 +214,8 @@ def canon(
         rest = ""
 
     out = h + rest + query
+    if page:
+        out += ("&" if query else "?") + f"page={page.group(1)}"
     if keep_fragment:
         out += "#" + frag
     return out
@@ -377,12 +383,20 @@ class Knowledge:
         )
 
     def seen_id(self, url: str) -> str:
-        """Auxiliary archive key (``id:<host>:<id>``) or ``""``."""
+        """Auxiliary archive key (``id:<host>:<id>``) or ``""``.
+
+        A viewer page (``…#ppixiv?page=5``) is appended as ``#p5``: one image of a
+        post is its own download, so two pages must not look like duplicates.
+        """
         rule = self.rule(url)
         if not rule or not rule.id:
             return ""
         value = seen_id(url, rule.id)
-        return f"id:{rule.key or rule.host}:{value}" if value else ""
+        if not value:
+            return ""
+        page = re.search(r"[?#&]page=(\d+)", url)
+        suffix = f"#p{page.group(1)}" if page else ""
+        return f"id:{rule.key or rule.host}:{value}{suffix}"
 
     def keys(self, url: str) -> tuple[str, ...]:
         """Canonical duplicate keys: the URL and the host it is mirrored to.

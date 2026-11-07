@@ -22,6 +22,22 @@ def test_canon_keeps_path_case():
     assert canon("https://example.com/Video/AbC") == "example.com/Video/AbC"
 
 
+def test_canon_keeps_the_viewer_page_from_the_fragment():
+    """#ppixiv?page=5 selects one image, so pages are separate downloads."""
+    assert canon("https://www.pixiv.net/artworks/151761889#ppixiv?page=5") == (
+        "pixiv.net/artworks/151761889?page=5"
+    )
+    assert canon("https://www.pixiv.net/artworks/151761889#ppixiv?page=0") == (
+        "pixiv.net/artworks/151761889?page=0"
+    )
+    assert canon("https://www.pixiv.net/artworks/151761889#ppixiv") == (
+        "pixiv.net/artworks/151761889"
+    )
+    assert canon("https://www.pixiv.net/artworks/151761889") == (
+        "pixiv.net/artworks/151761889"
+    )
+
+
 def test_canon_keeps_identity_fragments():
     assert canon("https://example.com/x#file=123") == "example.com/x#file=123"
     assert canon("https://example.com/x#comments") == "example.com/x"

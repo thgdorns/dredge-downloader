@@ -265,10 +265,13 @@ engines see it).
   gallery-dl which files it wrote (`Active postprocessor modules` showed only
   `MetadataPP` until the entry moved). ffmpeg converts the frames and deletes
   them; the result is one file, so the filename has no page suffix.
-- **`#ppixiv?page=N` downloads just that page.** The ppixiv userscript records
-  the viewer's 0-based index in the fragment; Dredge turns it into gallery-dl's
-  1-based `--range N+1` (`page=5` → the sixth image, `p5`). Without the fragment
-  the whole post is fetched as usual.
+- **`#ppixiv?page=N` downloads just that page, and is its own download.** The
+  ppixiv userscript records the viewer's 0-based index in the fragment; Dredge
+  turns it into gallery-dl's 1-based `--range N+1` (`page=5` → the sixth image,
+  `p5`). The page is also part of the identity — `canon` keeps it as
+  `…artworks/<id>?page=N` and the id becomes `id:pixiv.net:<id>#pN` — so queuing
+  pages 3 and 5 of one post fetches both, while the same page twice is still one
+  download. Without the fragment the whole post is fetched as usual.
 - **Filenames are `<title> <id>`, with a page suffix only for multi-page posts.**
   `extractor.pixiv.filename` in `config/gallery-dl.conf` is
   `"\fF {title} {id}{('_p' + str(num)) if count > 1 else ''}.{extension}"`.

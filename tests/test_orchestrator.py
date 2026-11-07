@@ -745,6 +745,30 @@ def test_clipboard_inbox_is_drained_into_the_queue(tmp_path):
     assert not paths.clip_inbox.exists()
 
 
+def test_clipboard_drain_keeps_the_pause_and_loses_no_duplicates(tmp_path):
+    """A copy while paused may queue the link twice and must not resume.
+
+    Windows can update the clipboard more than once for one copy (different
+    text flavours hash differently), so the same URL can reach the inbox twice.
+    Draining must keep one line and leave the paused flag alone.
+    """
+    paths = Paths(tmp_path)
+    paths.ensure()
+    settings = Settings.load(paths, dest_default=tmp_path / "dest")
+    paths.paused.touch()
+    records.write_lines(paths.clip_inbox, [
+        "https://example.com/a",
+        "https://example.com/a",
+        "https://example.com/b",
+    ])
+
+    added = orchestrator.drain_clipboard(paths, settings)
+
+    assert added == ["https://example.com/a", "https://example.com/b"]
+    assert records.read_lines(paths.queue) == added
+    assert paths.paused.exists()
+
+
 def test_clipboard_drain_is_skipped_when_capture_is_off(tmp_path):
     paths = Paths(tmp_path)
     settings = Settings.load(

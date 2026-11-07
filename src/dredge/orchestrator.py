@@ -139,8 +139,15 @@ def drain_clipboard(paths: Paths, settings: Settings) -> list[str]:
     captured = state.read_clip_inbox(paths.clip_inbox)
     if not captured:
         return []
-    records.append_lines(paths.queue, captured)
-    return captured
+    # One copy can update the clipboard more than once (different text flavours
+    # hash differently), so the same URL can arrive twice; keep one copy of each
+    # and skip whatever the queue already holds. Draining never touches the
+    # paused flag: a pause holds the queue, it does not stop it growing.
+    known = set(records.read_lines(paths.queue))
+    fresh = [line for line in dict.fromkeys(captured) if line not in known]
+    if fresh:
+        records.append_lines(paths.queue, fresh)
+    return fresh
 
 
 def run_pass(

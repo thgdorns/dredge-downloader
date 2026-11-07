@@ -239,6 +239,14 @@ engines see it).
   token to its own cache (`extractor.oauth.cache` defaults to true), so nothing
   is copied into `config/gallery-dl.conf` — a token there is optional and only
   needed if the cache is unwritable.
+- **Filenames are `<title> <id>`, with a page suffix only for multi-page posts.**
+  `extractor.pixiv.filename` in `config/gallery-dl.conf` is
+  `"\fF {title} {id}{('_p' + str(num)) if count > 1 else ''}.{extension}"`.
+  The `\fF ` prefix selects gallery-dl's f-string formatter, because the
+  `?before/after/` format spec cannot embed `{num}` (its parts are literal text)
+  and `num` is 0 for a single image. `count` is the post's page total, so a
+  one-image post gets no suffix while a multi-page one gets `_p0`, `_p1`, … on
+  every page. Verified on both shapes (1-image post, 5-page post).
 - The `#ppixiv` fragment that the ppixiv userscript appends is harmless:
   `canon`/`keys` already drop it (so re-queueing with or without it is the same
   link), and gallery-dl matches the path. It is *not* stripped from `dl_url`

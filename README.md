@@ -149,6 +149,12 @@ The lane count chosen in the menu (item 6) is written back to
 `config/dredge.conf` (`max_downloads = N`), so the next start uses it;
 `--max-downloads` overrides it for that run only.
 
+`config/dredge.conf` also sets `stall_seconds` (default 30): an engine that
+prints nothing for that long is killed and the link is recorded as failed. It
+catches a silent hang - a blocked IP, a dead socket - that would otherwise hold
+a lane for as long as the process lives. Partial files are kept, so the next run
+resumes them.
+
 Probe mode runs until **Esc** (or Ctrl+C) and leaves the queue paused so the
 list can be pruned first; it ends by resuming the downloads. With a piped
 stdin it drains `state/clip-inbox.txt` once and exits, which is what the tests

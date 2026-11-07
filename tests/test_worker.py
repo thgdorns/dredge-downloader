@@ -17,7 +17,7 @@ def knowledge(rule: SiteRule | None = None) -> Knowledge:
 def make_runner(behaviour: dict[str, dict]):
     """Fake engine call: writes the "downloaded" files and the manifest."""
 
-    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None, stall=None):
         engine = "gdl" if Path(str(args[0])).stem.lower() in ("gdl", "gallery-dl") else "yt"
         spec = behaviour.get(engine, {})
         dest = None
@@ -120,7 +120,7 @@ def test_a_blocked_mega_ip_fails_fast_and_says_so(tmp_path, monkeypatch):
     settings = Settings.load(paths, dest_default=tmp_path / 'dest', dry_run=False)
     stops: list[str | None] = []
 
-    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None, stall=None):
         stops.append(stop_on)
         return 1, (
             "ERROR: Download failed for 'https://mega.nz/file/x#y': API call "
@@ -152,7 +152,7 @@ def test_a_drive_folder_is_named_after_the_folder_not_its_id(tmp_path, monkeypat
     paths.cookies.write_text('# Netscape HTTP Cookie File\n', encoding='utf-8')
     calls: list[list[str]] = []
 
-    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None, stall=None):
         calls.append(list(args))
         target = Path(args[args.index('-O') + 1])
         target.mkdir(parents=True, exist_ok=True)
@@ -307,7 +307,7 @@ def test_a_dry_run_never_writes_a_row(tmp_path, monkeypatch):
     )
     calls: list[list[str]] = []
 
-    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None, stall=None):
         calls.append(list(args))
         return 0, ""
 
@@ -421,7 +421,7 @@ def test_a_public_drive_folder_never_touches_the_cookie_jar(tmp_path, monkeypatc
     paths.cookies.write_text('# Netscape HTTP Cookie File\n', encoding='utf-8')
     calls: list[list[str]] = []
 
-    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None, stall=None):
         calls.append(list(args))
         target = Path(args[args.index('-O') + 1])
         target.mkdir(parents=True, exist_ok=True)
@@ -451,7 +451,7 @@ def test_a_private_drive_link_falls_back_to_the_cookie_jar(tmp_path, monkeypatch
     paths.cookies.write_text('# Netscape HTTP Cookie File\n', encoding='utf-8')
     calls: list[list[str]] = []
 
-    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None, stall=None):
         calls.append(list(args))
         if '--no-cookies' not in args:
             target = Path(args[args.index('-O') + 1])
@@ -483,7 +483,7 @@ def test_filehost_engine_downloads_into_the_destination(tmp_path, monkeypatch):
     targets: list[Path] = []
     stops: list[str | None] = []
 
-    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None, stall=None):
         stops.append(stop_on)
         target = Path(args[args.index('--path') + 1])
         targets.append(target)
@@ -515,7 +515,7 @@ def test_a_killed_mega_download_keeps_its_partial_file(tmp_path, monkeypatch):
     paths = Paths(tmp_path)
     settings = Settings.load(paths, dest_default=tmp_path / 'dest', dry_run=False)
 
-    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None, stall=None):
         target = Path(args[args.index('--path') + 1])
         (target / '.megatmp.ABC123').write_bytes(b'x' * 4096)
         return 1, 'WARNING: chunk download failed (Server returned 509 (over quota))'
@@ -560,7 +560,7 @@ def test_gallery_dl_archived_file_missing_here_is_recorded_not_fetched(
     settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
     calls: list[list[str]] = []
 
-    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None, stall=None):
         calls.append(list(args))
         text = "# G:\\Downloads\\old\\clip.mp4"
         if sink:
@@ -590,7 +590,7 @@ def test_a_mega_folder_uses_its_online_name(tmp_path, monkeypatch):
     settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
     targets: list[Path] = []
 
-    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None, stall=None):
         target = Path(args[args.index("--path") + 1])
         targets.append(target)
         (target / "clip.mp4").write_bytes(b"x" * 200_000)
@@ -623,7 +623,7 @@ def test_gallery_dl_uses_the_ytdlp_display_name_for_the_author_folder(
     settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
     calls: list[list[str]] = []
 
-    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None, stall=None):
         calls.append(list(args))
         if "--print" in args:
             return 0, "マレーバク大佐\n"
@@ -664,7 +664,7 @@ def test_engine_yt_dlp_tries_yt_dlp_before_gallery_dl(tmp_path, monkeypatch):
     settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
     calls: list[list[str]] = []
 
-    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None, stall=None):
         calls.append(list(args))
         if "gallery-dl" in Path(str(args[0])).stem:
             return 0, ""
@@ -779,7 +779,7 @@ def test_engine_yt_dlp_never_falls_through(tmp_path, monkeypatch):
     settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
     calls: list[list[str]] = []
 
-    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None, stall=None):
         calls.append(list(args))
         return 1, "ERROR: aria2c exited with code 1"
 
@@ -806,7 +806,7 @@ def test_engine_gdl_never_falls_through(tmp_path, monkeypatch):
     settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
     calls: list[list[str]] = []
 
-    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None, stall=None):
         calls.append(list(args))
         if "gallery-dl" in Path(str(args[0])).stem:
             return 1, "ERROR: Unsupported URL"
@@ -838,7 +838,7 @@ def test_engine_megadl_never_falls_through(tmp_path, monkeypatch):
     settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
     calls: list[list[str]] = []
 
-    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None, stall=None):
         calls.append(list(args))
         if "megatools" in str(args[0]):
             return 1, "ERROR: 509 bandwidth limit exceeded"
@@ -943,7 +943,7 @@ def test_the_gdown_engine_downloads_into_the_destination(tmp_path, monkeypatch):
     settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
     calls: list[list[str]] = []
 
-    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None, stall=None):
         calls.append(list(args))
         target = Path(args[args.index("-O") + 1].rstrip("\\/"))
         target.mkdir(parents=True, exist_ok=True)
@@ -974,7 +974,7 @@ def test_a_drive_folder_link_gets_a_folder_named_by_its_id(tmp_path, monkeypatch
     settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
     calls: list[list[str]] = []
 
-    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None, stall=None):
         calls.append(list(args))
         target = Path(args[args.index("-O") + 1])
         target.mkdir(parents=True, exist_ok=True)
@@ -1009,7 +1009,7 @@ def test_a_short_link_is_resolved_before_the_engine_lookup(tmp_path, monkeypatch
     calls: list[list[str]] = []
     final = "https://drive.google.com/drive/folders/15uNXeRBIhVvZJIhL4yTw4IsStMhUaaxl"
 
-    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None, stall=None):
         calls.append(list(args))
         target = Path(args[args.index("-O") + 1])
         target.mkdir(parents=True, exist_ok=True)
@@ -1053,7 +1053,7 @@ def test_gdown_uses_a_throwaway_copy_of_the_cookies(tmp_path, monkeypatch):
     calls: list[list[str]] = []
     contents: list[str] = []
 
-    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None, stall=None):
         calls.append(list(args))
         if "--no-cookies" in args:
             return 1, "Cannot retrieve the public link of the file."
@@ -1088,7 +1088,7 @@ def test_gdown_without_a_cookie_file_asks_for_none(tmp_path, monkeypatch):
     settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
     calls: list[list[str]] = []
 
-    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None, stall=None):
         calls.append(list(args))
         target = Path(args[args.index("-O") + 1].rstrip("\\/"))
         target.mkdir(parents=True, exist_ok=True)

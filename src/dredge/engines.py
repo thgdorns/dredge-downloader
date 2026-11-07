@@ -14,6 +14,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -102,6 +103,7 @@ def run(
     sink: Sink | None = None,
     timeout: float | None = None,
     stop_on: str | None = None,
+    stall: float | None = None,
 ) -> tuple[int, str]:
     """Run a command, stream its output to ``sink``, return ``(rc, text)``.
 
@@ -109,6 +111,10 @@ def run(
     for conditions the engine retries forever instead of failing, such as a
     MEGA "509 over quota" answer: megatools then sleeps for minutes per chunk
     and the lane would stay busy until the quota resets.
+
+    ``stall`` is the silent case: an engine that prints nothing at all (a
+    stalled socket, a hung megatools) never trips ``stop_on`` and never returns,
+    so a watchdog kills it after that many seconds without output.
     """
     lines: list[str] = []
     stop = re.compile(stop_on) if stop_on else None
@@ -128,9 +134,25 @@ def run(
         env=env,
         creationflags=_NO_WINDOW,
     )
+    heartbeat = [time.monotonic()]
+    watchdog: threading.Thread | None = None
+    if stall and stall > 0:
+        def _watchdog() -> None:
+            while proc.poll() is None:
+                time.sleep(0.5)
+                if time.monotonic() - heartbeat[0] > stall:
+                    lines.append(
+                        f"[dredge] engine stopped: no output for {stall:g}s"
+                    )
+                    proc.kill()
+                    return
+
+        watchdog = threading.Thread(target=_watchdog, daemon=True)
+        watchdog.start()
     try:
         assert proc.stdout is not None
         for raw in proc.stdout:
+            heartbeat[0] = time.monotonic()
             line = raw.rstrip("\r\n")
             lines.append(line)
             if sink:
@@ -145,6 +167,8 @@ def run(
         proc.wait()
         lines.append("[dredge] engine timed out")
         rc = 124
+    if watchdog is not None:
+        watchdog.join(timeout=1.0)
     return rc, "\n".join(lines)
 
 

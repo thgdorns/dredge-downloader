@@ -33,6 +33,51 @@ def test_gdown_without_a_rate_keeps_the_last_known_speed(tmp_path):
     assert speed == "29.1 MiB/s"
 
 
+def test_a_silent_engine_is_killed_by_the_watchdog(tmp_path):
+    """A hung engine prints nothing, so no stop_on pattern can catch it."""
+    import time
+
+    started = time.monotonic()
+    rc, text = run(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        cwd=tmp_path, stall=0.6,
+    )
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 10
+    assert rc != 0
+    assert "no output for 0.6s" in text
+
+
+def test_an_engine_that_keeps_printing_is_not_killed(tmp_path):
+    code = (
+        "import time\n"
+        "for i in range(6):\n"
+        "    print(i, flush=True)\n"
+        "    time.sleep(0.15)\n"
+    )
+    rc, text = run([sys.executable, "-c", code], cwd=tmp_path, stall=0.6)
+
+    assert rc == 0
+    assert "no output for" not in text
+    assert text.strip().endswith("5")
+
+
+def test_the_stall_setting_is_read_from_the_config(tmp_path):
+    from dredge.config import Paths, Settings
+
+    paths = Paths(tmp_path)
+    paths.ensure()
+    paths.config.mkdir(parents=True, exist_ok=True)
+    (paths.config / "dredge.conf").write_text(
+        "stall_seconds = 45\n", encoding="utf-8"
+    )
+
+    assert Settings.load(paths).stall_seconds == 45
+    # a root with no config file falls back to the default
+    assert Settings.load(Paths(tmp_path / "fresh")).stall_seconds == 30
+
+
 def test_ytdlp_progress_marker_gives_percent_and_speed(tmp_path):
     log = tmp_path / "lane1.log"
     log.write_text(

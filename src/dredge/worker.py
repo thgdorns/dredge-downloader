@@ -1,4 +1,4 @@
-﻿"""One URL, the whole tier chain, one verdict.
+"""One URL, the whole tier chain, one verdict.
 
 The worker is deliberately engine-agnostic: gallery-dl first, then yt-dlp with
 its dedicated extractors, then yt-dlp again with its own downloader, then the
@@ -199,6 +199,17 @@ class Worker:
         self._extractor = ""
 
     # -- logging ---------------------------------------------------------
+    def _engine_run(self, args, **kwargs):
+        """``run()`` for an engine child, with the stall watchdog applied.
+
+        Every engine call goes through here: an engine that prints nothing for
+        ``stall_seconds`` is killed, so a silent hang (megatools waiting on a
+        blocked IP, a dead socket) cannot hold a lane forever.
+        """
+        kwargs.setdefault("cwd", self.paths.root)
+        kwargs.setdefault("stall", self.settings.stall_seconds)
+        return run(args, **kwargs)
+
     def _lane(self, message: str) -> None:
         line = f"[{_clock()}] {message}"
         with self._lock:
@@ -411,7 +422,7 @@ class Worker:
                 yt_args = ["--downloader", "native"]
                 self._lane("[yt-dlp] native downloader (native in sites.txt)")
             mark = len(self._buffer)
-            rc, _ = run(
+            rc, _ = self._engine_run(
                 [self.engines.yt, "--ignore-config", "--config-locations",
                  str(self.paths.ytdlp_conf), *yt_args, *site_yt, *ignore_args,
                  *refresh_args, *common, *manifest_args, *target_args, *progress_args,
@@ -434,7 +445,7 @@ class Worker:
         ):
             self._lane(f"[yt-dlp-native] {resolved} (retry without aria2c)")
             sig1 = dir_signature(final_dest)
-            rc, _ = run(
+            rc, _ = self._engine_run(
                 [self.engines.yt, "--ignore-config", "--config-locations",
                  str(self.paths.ytdlp_conf), "--downloader", "native", *site_yt,
                  *ignore_args, *refresh_args, *common, *manifest_args, *target_args,
@@ -467,7 +478,7 @@ class Worker:
             and self.engines.yt and not pinned
         ):
             self._lane(f"[yt-dlp-generic] {resolved}")
-            rc, _ = run(
+            rc, _ = self._engine_run(
                 [self.engines.yt, "--ignore-config", "--config-locations",
                  str(self.paths.ytdlp_generic_conf), *ignore_args, *refresh_args,
                  *site_yt, *common3, *manifest_args, *target_args, *progress_args,
@@ -561,7 +572,7 @@ class Worker:
                 pass
             args = ["--Print-to-file", "after:{id}", str(result.pages_manifest)] + args
 
-        rc, _ = run([self.engines.gdl, *args], cwd=self.paths.root, sink=self._sink)
+        rc, _ = self._engine_run([self.engines.gdl, *args], cwd=self.paths.root, sink=self._sink)
         if ignore:
             self._auto_rename(args, files_manifest)
         out = self.text
@@ -615,7 +626,7 @@ class Worker:
         """The uploader's display name from yt-dlp (gallery-dl often has the handle)."""
         if not self.engines.yt:
             return ""
-        _, out = run(
+        _, out = self._engine_run(
             [self.engines.yt, "--ignore-config", "--config-locations",
              str(self.paths.ytdlp_conf), "--no-download-archive", "--simulate",
              "--no-warnings", "--print", "%(uploader)s", url],
@@ -683,7 +694,7 @@ class Worker:
             except OSError:
                 pass
         self._lane(f"[auto-rename] {moved} existing file(s) moved aside")
-        run([self.engines.gdl, "--no-skip", *args], cwd=self.paths.root, sink=self._sink)
+        self._engine_run([self.engines.gdl, "--no-skip", *args], cwd=self.paths.root, sink=self._sink)
 
     def _page_ids(self, manifest: Path | None) -> list[str]:
         if not manifest or not manifest.is_file():
@@ -721,7 +732,7 @@ class Worker:
 
     def _expand_flat(self, dl: str, spec: str = "") -> str | None:
         self._lane(f"[expand] flat listing {dl}")
-        _rc, out = run(
+        _rc, out = self._engine_run(
             [self.engines.yt, "--ignore-config", "--config-locations",
              str(self.paths.ytdlp_conf), "--no-download-archive", "--flat-playlist",
              "--simulate", "--print", "%(webpage_url)s", dl],
@@ -778,7 +789,7 @@ class Worker:
             args = self._gdown_args(exe, dl, dest, cookies=False)
         else:
             args = [exe, "-o", str(dest), "-m", "4", "-t", "2", dl]
-        rc, out = run(args, cwd=self.paths.root, sink=self._sink, stop_on=_QUOTA_STOP)
+        rc, out = self._engine_run(args, cwd=self.paths.root, sink=self._sink, stop_on=_QUOTA_STOP)
         moved = sorted(_file_snapshot(dest) - before)
         if name == "gdown" and "--no-cookies" in args and (
             rc != 0 or ("/folders/" in dl and not moved)
@@ -788,7 +799,7 @@ class Worker:
             self._lane(
                 "[gdown] anonymous access did not work - retrying with the cookie jar"
             )
-            rc, out = run(
+            rc, out = self._engine_run(
                 self._gdown_args(exe, dl, dest, cookies=True),
                 cwd=self.paths.root, sink=self._sink, stop_on=_QUOTA_STOP,
             )

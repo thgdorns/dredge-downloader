@@ -20,6 +20,7 @@ _LISTS = ("also", "probe", "cookiedrop")
 _SCALARS = (
     "id", "tpl", "folder", "engine", "author", "postid", "posturl", "itemurl", "playlist",
     "strip", "dlstrip", "keepfrag", "list", "key", "dest", "rewrite", "oauth",
+    "page",
 )
 
 
@@ -47,6 +48,7 @@ class SiteRule:
     author: str = ""              # "yt-dlp": creator folder from its uploader name
     dest: str = ""                # named destination for this host (dredge.conf)
     oauth: str = ""               # gallery-dl site needing a token ("pixiv")
+    page: str = ""                # a link without a page means this one ("1")
     rewrite: str = ""             # REGEX=>URL applied to the URL before the engines
     cookiedrop: tuple[str, ...] = ()
     strip: str = ""

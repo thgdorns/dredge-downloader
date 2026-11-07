@@ -271,26 +271,22 @@ engines see it).
   14.22 MB, bit-exact; `copy` → 31.11 MB of MJPEG in an mkv (bit-exact, largest,
   and mkvmerge is not installed so the accurate-timecode mode is unavailable).
   WebM is the best quality-per-byte and keeps the original size.
-- **`#ppixiv?page=N` downloads just that page, and is its own download.** The
-  ppixiv userscript records the viewer's 0-based index in the fragment; Dredge
-  turns it into gallery-dl's 1-based `--range N+1` (`page=5` → the sixth image,
-  `p5`). The page is also part of the identity — `canon` keeps it as
-  `…artworks/<id>?page=N` and the id becomes `id:pixiv.net:<id>#pN` — so queuing
-  pages 3 and 5 of one post fetches both, while the same page twice is still one
-  download. Without the fragment the whole post is fetched as usual.
-- **Filenames are `<title> <id>`, with a page suffix only for multi-page posts.**
-  `extractor.pixiv.filename` in `config/gallery-dl.conf` is
-  `"\fF {title} {id}{('_p' + str(num)) if count > 1 else ''}.{extension}"`.
-  The `\fF ` prefix selects gallery-dl's f-string formatter, because the
-  `?before/after/` format spec cannot embed `{num}` (its parts are literal text)
-  and `num` is 0 for a single image. `count` is the post's page total, so a
-  one-image post gets no suffix while a multi-page one gets `_p0`, `_p1`, … on
-  every page. Verified on both shapes (1-image post, 5-page post).
-- The `#ppixiv` fragment that the ppixiv userscript appends is harmless:
-  `canon`/`keys` already drop it (so re-queueing with or without it is the same
-  link), and gallery-dl matches the path. It is *not* stripped from `dl_url`
-  because fragments are load-bearing elsewhere - a MEGA link's `#<key>` is the
-  decryption key.
+- **`#ppixiv?page=N` is one page, and a link without one means page 1.** The
+  number is what the viewer shows, so it goes to gallery-dl's 1-based `--range`
+  unchanged (`page=5` → the fifth image, `p4`). `page=1` in the pixiv rule makes
+  a bare `/artworks/<id>` link the *first picture* instead of the whole post.
+  The page is part of the identity — `canon` keeps it as `…artworks/<id>?page=N`
+  and the id becomes `id:pixiv.net:<id>#pN` — so pages 3 and 5 of one post are
+  two downloads, while the same page twice is one.
+- **Filenames always carry the page: `<title> <id>_p<num>`.** `extractor.pixiv.filename`
+  in `config/gallery-dl.conf` is `"{title} {id}_p{num}.{extension}"`, so a
+  single-file post is `…_p0` too; with every pixiv link now being a page, hiding
+  the number on single-page posts only made the naming inconsistent.
+- The `#ppixiv` fragment is what carries the page, so it is *not* discarded:
+  `canon` turns it into `?page=N` and the worker reads it from the URL handed to
+  the engine (`dl_url` keeps the fragment). A fragment with no `page=` is still
+  ignored, and fragments are load-bearing elsewhere too — a MEGA link's
+  `#<key>` is the decryption key.
 - Bookmark listings (`bookmark_new_illust.php?...`) are pages, not posts; they
   only work with the token too and expand into many artworks.
 

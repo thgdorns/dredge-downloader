@@ -207,7 +207,7 @@ def test_a_drive_folder_name_is_cleaned(monkeypatch):
 
 
 def test_a_ppixiv_page_in_the_fragment_becomes_a_range(tmp_path, monkeypatch):
-    """#ppixiv?page=5 is the viewer's 0-based index; --range is 1-based."""
+    """#ppixiv?page=5 means the fifth picture, and --range is 1-based too."""
     from dredge.worker import page_from_fragment
 
     assert page_from_fragment("https://www.pixiv.net/artworks/1#ppixiv?page=5") == 5
@@ -240,7 +240,36 @@ def test_a_ppixiv_page_in_the_fragment_becomes_a_range(tmp_path, monkeypatch):
     assert verdict == 'OK|gallery-dl'
     argv = calls[0]
     assert '--range' in argv
-    assert argv[argv.index('--range') + 1] == '6'
+    assert argv[argv.index('--range') + 1] == '5'
+
+
+def test_a_link_without_a_page_uses_the_rule_default(tmp_path, monkeypatch):
+    """pixiv's rule says page=1: a bare artwork link means the first picture."""
+    rule = parse_rule('pixiv.net engine=gdl page=1')
+    paths = Paths(tmp_path)
+    settings = Settings.load(paths, dest_default=tmp_path / 'dest', dry_run=False)
+    calls: list[list[str]] = []
+
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None, stall=None):
+        calls.append(list(args))
+        dest = Path(args[args.index('-d') + 1])
+        dest.mkdir(parents=True, exist_ok=True)
+        (dest / 'p0.png').write_bytes(b'x' * 200_000)
+        return 0, ''
+
+    monkeypatch.setattr(worker_module, 'run', fake)
+    worker = Worker(paths, settings, Engines(gdl='gallery-dl'), knowledge(rule))
+    verdict = worker.download(
+        'https://www.pixiv.net/artworks/151761889',
+        dest=tmp_path / 'dest',
+        lane_log=tmp_path / 'lane1.log',
+        result=tmp_path / 'lane1.result',
+        archive=tmp_path / 'lane1.archive',
+    )
+
+    assert verdict == 'OK|gallery-dl'
+    argv = calls[0]
+    assert argv[argv.index('--range') + 1] == '1'
 
 
 def test_gallery_dl_success_writes_a_row(tmp_path, monkeypatch):

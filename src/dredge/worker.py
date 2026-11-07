@@ -728,25 +728,24 @@ class Worker:
             args = [exe, "dl", "--path", str(dest), "--no-ask-password",
                     "--ignore-config-file", dl]
         elif name == "gdown":
-            args = self._gdown_args(exe, dl, dest, cookies=True)
+            # Drive is used for public folders. Asking as the logged-in account
+            # turns "public but not shared with me" into an empty listing, so
+            # anonymous is the default and the jar is only a fallback.
+            args = self._gdown_args(exe, dl, dest, cookies=False)
         else:
             args = [exe, "-o", str(dest), "-m", "4", "-t", "2", dl]
         rc, out = run(args, cwd=self.paths.root, sink=self._sink, stop_on=_QUOTA_STOP)
         moved = sorted(_file_snapshot(dest) - before)
-        if name == "gdown" and "/folders/" in dl and not moved and (
-            "--no-cookies" not in args
-        ):
-            # gdown lists a folder through the cookie jar, i.e. as the logged-in
-            # account. A folder that is public but not shared with that account
-            # comes back as an empty listing: exit 0, nothing to fetch, and the
-            # pass records a bare FAILED. The same link downloads fine without
-            # cookies, so retry once anonymously. Private folders need the
-            # cookies and simply fail again.
+        if name == "gdown" and "--no-cookies" in args and (
+            rc != 0 or ("/folders/" in dl and not moved)
+        ) and self.paths.cookies.exists():
+            # Private links are the only thing the jar helps with: an anonymous
+            # run either errors or lists nothing. Retrying costs one request.
             self._lane(
-                "[gdown] the cookie jar returned an empty folder - retrying anonymously"
+                "[gdown] anonymous access did not work - retrying with the cookie jar"
             )
             rc, out = run(
-                self._gdown_args(exe, dl, dest, cookies=False),
+                self._gdown_args(exe, dl, dest, cookies=True),
                 cwd=self.paths.root, sink=self._sink, stop_on=_QUOTA_STOP,
             )
             moved = sorted(_file_snapshot(dest) - before)

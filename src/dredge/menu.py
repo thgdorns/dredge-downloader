@@ -92,6 +92,13 @@ def menu_key() -> str | None:
     return key
 
 
+# A held P repeats the character (and a quick double-tap sends two), so one
+# press must toggle once: a second toggle inside this window is dropped. Without
+# it the pause flips straight back to running and looks like the key did nothing.
+_PAUSE_DEBOUNCE = 1.2
+_last_pause = 0.0
+
+
 def wait(
     seconds: float,
     on_menu: Callable[[], None] | None = None,
@@ -100,6 +107,8 @@ def wait(
     """Sleep that stays responsive to the ``M`` menu and ``P`` pause keys."""
     import time
 
+    global _last_pause
+
     end = time.monotonic() + seconds
     while True:
         if on_menu or on_pause:
@@ -107,7 +116,10 @@ def wait(
             if key == "m" and on_menu:
                 on_menu()
             elif key == "p" and on_pause:
-                on_pause()
+                now = time.monotonic()
+                if now - _last_pause >= _PAUSE_DEBOUNCE:
+                    _last_pause = now
+                    on_pause()
         left = end - time.monotonic()
         if left <= 0:
             return

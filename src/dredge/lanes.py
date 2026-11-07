@@ -55,6 +55,8 @@ class LaneBoard:
         self._linger = linger
         self._done_at: dict[int, float] = {}
         self._lines: dict[int, Text] = {}
+        self._paused = False
+        self._finishing = 0
         self._live = Live(
             self.render(),
             console=self.console,
@@ -79,11 +81,26 @@ class LaneBoard:
         """The block, cut to the console width *now* (so a resize shows more)."""
         limit = max(20, (width or self.console.width) - 1)
         rows: list[Text] = []
+        if self._paused:
+            # The queue is held: say so on the board, or a P press looks ignored
+            # while the lanes that were already running keep going.
+            suffix = (
+                f" {self._finishing} lane(s) finishing" if self._finishing else ""
+            )
+            rows.append(Text.assemble(
+                (" PAUSED ", "bold white on red"),
+                (f" new downloads held{suffix} - press P to resume", "yellow"),
+            ))
         for slot in sorted(self._lines):
             text = self._lines[slot].copy()
             text.truncate(limit, overflow="ellipsis")
             rows.append(text)
         return Group(*rows)
+
+    def set_paused(self, paused: bool, finishing: int = 0) -> None:
+        """Show whether the queue is held, and how many lanes are still running."""
+        self._paused = paused
+        self._finishing = finishing
 
     def refresh(self) -> None:
         if self._running:

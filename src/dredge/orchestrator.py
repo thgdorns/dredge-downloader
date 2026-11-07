@@ -319,6 +319,7 @@ def run_pass(
 
             if board:
                 board.ensure(range(1, runtime.max_downloads + 1), active)
+                board.set_paused(paths.paused.exists(), len(active))
                 for slot in sorted(active):
                     name, pct, speed = lane_status_tail(paths.lane_log(slot))
                     lane = active[slot]

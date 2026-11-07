@@ -138,7 +138,10 @@ copy config\gallery-dl.conf.example config\gallery-dl.conf
 
 Press **M** while it runs to open the menu. **P** pauses or resumes downloads
 without opening it; a pause stops new lanes, lets the active files finish, and
-keeps draining copied links into `queue.txt`. Inside the menu: records check
+keeps draining copied links into `queue.txt`. The lane board then shows a red
+`PAUSED` row with how many lanes are still finishing, so the press is visible
+even while a download runs. One press toggles once: a held or double-tapped key
+does not flip it back. Inside the menu: records check
 on/off, retry failed, retry skipped, skip failed, probe files, lane count,
 pause/resume, strict mode, and shortcuts to the record files. **Esc** goes back.
 

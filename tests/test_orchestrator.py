@@ -188,6 +188,7 @@ class FakeBoard:
         self.urls: list[tuple[int, str]] = []
         self.done: list[tuple[int, str]] = []
         self.refreshes = 0
+        self.paused: tuple[bool, int] = (False, 0)
 
     def start(self) -> None:
         self.started += 1
@@ -197,6 +198,9 @@ class FakeBoard:
 
     def ensure(self, slots, active=()) -> None:
         pass
+
+    def set_paused(self, paused, finishing=0) -> None:
+        self.paused = (paused, finishing)
 
     def set_url(self, slot, index, total, url, folder="") -> None:
         self.urls.append((slot, url))

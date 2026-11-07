@@ -767,6 +767,34 @@ def test_catch_up_queue_adds_a_line_written_during_a_pass(tmp_path):
     ) == []
 
 
+def test_catch_up_queue_ignores_links_already_downloaded(tmp_path):
+    """An expanded listing re-adds its known items; the record decides.
+
+    With yt-dlp's own archive gone, downloads.tsv is the only thing that stops a
+    creator page from re-queueing everything it lists, so the catch-up must
+    consult it too (the pass-start plan already does).
+    """
+    paths = Paths(tmp_path)
+    settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
+    records.write_lines(paths.queue, [
+        "https://example.com/old",
+        "https://example.com/new",
+    ])
+    knowledge = Knowledge({}, SiteRule(host="*"), MirrorTable())
+    ordered: list[str] = []
+    pending: list[int] = []
+    remaining: list[str] = []
+    queued: set[str] = set()
+
+    added = _catch_up_queue(
+        paths, knowledge, ordered, pending, remaining, queued, settings,
+        {"example.com/old"},
+    )
+
+    assert added == ["https://example.com/new"]
+    assert ordered == ["https://example.com/new"]
+
+
 def test_catch_up_queue_drains_staged_urls(tmp_path):
     paths = Paths(tmp_path)
     settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)

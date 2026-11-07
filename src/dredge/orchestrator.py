@@ -416,7 +416,8 @@ def run_pass(
 
             _sleep(0.5, runtime, knowledge, board)
             picked = [] if records_frozen else _catch_up_queue(
-                paths, knowledge, ordered, pending, remaining, queued_canon, settings
+                paths, knowledge, ordered, pending, remaining, queued_canon,
+                settings, runtime.seen,
             )
             if picked:
                 out(_line(stamp, f"queue: +{len(picked)} URL(s) picked up.", "cyan"))
@@ -916,6 +917,7 @@ def _catch_up_queue(
     remaining: list[str],
     queued_canon: set[str],
     settings,
+    seen: set[str] | None = None,
 ) -> list[str]:
     """Pick up URLs written to queue.txt while this pass is running.
 
@@ -932,14 +934,17 @@ def _catch_up_queue(
     """
     if settings.dry_run:
         return []
+    seen = seen or set()
     if paths.staged_queue.exists():
         fresh: list[str] = []
-        seen: set[str] = set()
+        batch: set[str] = set()
         for url in read_queue(paths.staged_queue):
             keys = knowledge.keys(split_line(url)[0])
-            if not keys or any(key in queued_canon or key in seen for key in keys):
+            if not keys or any(
+                key in queued_canon or key in seen or key in batch for key in keys
+            ):
                 continue
-            seen.update(keys)
+            batch.update(keys)
             fresh.append(url)
         if fresh:
             records.append_lines(paths.queue, fresh)
@@ -950,7 +955,7 @@ def _catch_up_queue(
     added: list[str] = []
     for url in records.read_lines(paths.queue):
         keys = knowledge.keys(split_line(url)[0])
-        if not keys or any(key in queued_canon for key in keys):
+        if not keys or any(key in queued_canon or key in seen for key in keys):
             continue
         queued_canon.update(keys)
         ordered.append(url)

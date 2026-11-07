@@ -376,6 +376,23 @@ def test_a_dead_post_is_offline_not_failed(tmp_path, monkeypatch):
     assert verdict == "OFFLINE"
 
 
+def test_a_file_already_on_disk_is_a_success(tmp_path, monkeypatch):
+    """Without the download archive, yt-dlp skips by noticing the file.
+
+    That line must count as a download, not as a tier that produced nothing:
+    otherwise every re-queued URL whose file exists would land in fail.txt.
+    """
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    target = dest / "already.mp4"
+    target.write_bytes(b"x" * 200_000)
+    text = f"[download] {target} has already been downloaded"
+
+    verdict, _ = run(tmp_path, monkeypatch, {"yt": {"rc": 0, "text": text}})
+
+    assert verdict == "OK|yt-dlp"
+
+
 def test_a_private_video_is_parked_not_failed(tmp_path, monkeypatch):
     """yt-dlp names the condition, and no retry can change it: skip.txt, not fail.txt."""
     text = "ERROR: [iwara] abc: Private video. Login if you have permissions to watch."

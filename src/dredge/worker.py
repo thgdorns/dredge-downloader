@@ -35,6 +35,10 @@ from .urls import Knowledge, Playlist, host, resolve_short_url
 
 _PATH_CHARS = r'[^\r\n"<>|]+'
 _SKIP_LINE = re.compile(r"(?m)^#\s+(.+?)\s*$")
+# yt-dlp prints this when the file is still on disk and it refuses to fetch it
+# again. With no download archive that is the normal way a repeat is skipped, and
+# it is a success: the bytes are there.
+_ALREADY_LINE = re.compile(r"(?m)^\[download\]\s+.+ has already been downloaded")
 # The kemono family stores a post's files even when only the thumbnail was
 # archived; gallery-dl refuses to save that thumbnail as the real file and says
 # so. Nothing will ever fetch the original, so this is not a failure.
@@ -487,7 +491,10 @@ class Worker:
                  *extractor_args, *sim, dl],
                 cwd=self.paths.root, sink=self._sink,
             )
-            if rc == 0 and produced(final_dest, sig0, self.text, dry):
+            if rc == 0 and (
+                produced(final_dest, sig0, self.text, dry)
+                or _ALREADY_LINE.search(self.text)
+            ):
                 engine = "yt-dlp"
                 self._extractor = self._read_extractor(extractor_file)
                 if self._strict_blocks(resolved, self._extractor):
@@ -510,7 +517,10 @@ class Worker:
                  *progress_args, *extractor_args, dl],
                 cwd=self.paths.root, sink=self._sink,
             )
-            if rc == 0 and produced(final_dest, sig1, self.text, False):
+            if rc == 0 and (
+                produced(final_dest, sig1, self.text, False)
+                or _ALREADY_LINE.search(self.text)
+            ):
                 engine = "yt-dlp-native"
                 self._extractor = self._read_extractor(extractor_file)
                 if self._strict_blocks(resolved, self._extractor):
@@ -543,7 +553,10 @@ class Worker:
                  *extractor_args, *sim, dl],
                 cwd=self.paths.root, sink=self._sink,
             )
-            if rc == 0 and produced(final_dest, sig0, self.text, dry):
+            if rc == 0 and (
+                produced(final_dest, sig0, self.text, dry)
+                or _ALREADY_LINE.search(self.text)
+            ):
                 engine = "yt-dlp-generic"
                 self._extractor = self._read_extractor(extractor_file)
 

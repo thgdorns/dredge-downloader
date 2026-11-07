@@ -477,7 +477,7 @@ def run_pass(
                 if (lane.line or lane.url) in remaining:
                     remaining.remove(lane.line or lane.url)
                 if not settings.dry_run:
-                    records.write_lines(paths.queue, remaining)
+                    _save_queue(paths, remaining, ordered)
 
                 record_line = lane.line or lane.url
                 if verdict.startswith("AUTH|"):
@@ -511,7 +511,7 @@ def run_pass(
                             ))
                         remaining.append(record_line)
                         if not settings.dry_run:
-                            records.write_lines(paths.queue, remaining)
+                            _save_queue(paths, remaining, ordered)
                         pending.append(lane.index - 1)   # lane.index is 1-based
                         continue
                     records.append_lines(paths.fail, [record_line])
@@ -730,6 +730,26 @@ def _mark_failed(runtime: Runtime, knowledge: Knowledge, url: str) -> None:
     ident = knowledge.seen_id(keys[0])
     if ident:
         runtime.failed.add(ident)
+
+
+def _save_queue(paths: Paths, remaining: list[str], ordered: list[str]) -> None:
+    """Rewrite queue.txt from ``remaining`` without dropping external edits.
+
+    The menu's retry-failed action appends to queue.txt while a pass runs, and
+    this rewrite happens on every lane completion - before the catch-up read
+    that would adopt those lines. Writing ``remaining`` alone deleted links
+    added in that window: they were gone from queue.txt, and fail.txt had
+    already been emptied. Keep whatever is on disk that this pass never planned
+    (``ordered``), so the next catch-up adopts it; finished links are not
+    resurrected because they are still in ``ordered``.
+    """
+    known = set(ordered)
+    try:
+        on_disk = records.read_lines(paths.queue)
+    except OSError:
+        on_disk = []
+    extra = [line for line in on_disk if line not in known]
+    records.write_lines(paths.queue, remaining + extra if extra else remaining)
 
 
 def _catch_up_queue(

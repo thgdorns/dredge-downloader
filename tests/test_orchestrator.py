@@ -196,6 +196,52 @@ def test_a_second_auth_verdict_for_the_same_site_fails_without_a_flow(
     assert "artworks/1" in paths.fail.read_text(encoding="utf-8")
 
 
+def test_a_link_appended_mid_pass_survives_the_queue_rewrite(
+    tmp_path, monkeypatch
+):
+    """Menu 1->2 appends to queue.txt while lanes run.
+
+    The rewrite after every lane completion used to happen before the catch-up
+    read, so a link added in that window was written out of queue.txt and never
+    scheduled - gone from both queue.txt and fail.txt (which retry-failed had
+    already emptied).
+    """
+    seen: list[str] = []
+
+    class AppendingWorker:
+        appended = False
+
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def download(self, url, *, result, **kwargs):
+            seen.append(url)
+            if not AppendingWorker.appended:
+                AppendingWorker.appended = True
+                records.append_lines(paths.queue, ["https://example.com/second"])
+            Path(result).write_text("OK|gallery-dl", encoding="utf-8")
+            return "OK|gallery-dl"
+
+    paths = Paths(tmp_path)
+    paths.ensure()
+    settings = Settings.load(
+        paths, dest_default=tmp_path / "dest", max_downloads=1,
+        no_capture=True, progress_every_seconds=0,
+    )
+    records.write_lines(paths.queue, ["https://example.com/first"])
+    monkeypatch.setattr(orchestrator, "Worker", AppendingWorker)
+    monkeypatch.setattr(orchestrator, "_make_board", lambda out: None)
+
+    run_pass(
+        Runtime(paths, settings),
+        Knowledge({}, SiteRule(host="*"), MirrorTable()),
+        orchestrator.Engines(), out=lambda message: None,
+    )
+
+    assert seen == ["https://example.com/first", "https://example.com/second"]
+    assert "second" not in paths.queue.read_text(encoding="utf-8")
+
+
 def test_zero_lanes_are_clamped_to_one(tmp_path):
     settings = Settings.load(Paths(tmp_path), max_downloads=0)
     runtime = Runtime(Paths(tmp_path), settings)

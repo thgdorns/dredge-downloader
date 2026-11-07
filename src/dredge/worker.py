@@ -39,6 +39,9 @@ _SKIP_LINE = re.compile(r"(?m)^#\s+(.+?)\s*$")
 # archived; gallery-dl refuses to save that thumbnail as the real file and says
 # so. Nothing will ever fetch the original, so this is not a failure.
 _PREVIEW_LINE = re.compile(r"\('preview only'\)")
+# yt-dlp's own wording when the account may not watch a video ("Private video.
+# Login if you have permissions to watch."). Retrying cannot change it.
+_PRIVATE_LINE = re.compile(r"(?i)\bprivate video\b")
 
 # Conditions an engine retries forever instead of failing. megatools sleeps for
 # minutes per chunk on a MEGA "509 over quota", so the lane would stay busy
@@ -561,6 +564,11 @@ class Worker:
             verdict = f"OK|{engine}"
         elif RATE_RE.search(self.text):
             verdict = "FAILED"          # throttled: retry on a later run
+        elif _PRIVATE_LINE.search(self.text):
+            # yt-dlp says "Private video. Login if you have permissions to
+            # watch." - the account cannot see it, and a retry will not change
+            # that, so the pass parks it instead of adding it to fail.txt.
+            verdict = "PRIVATE|yt-dlp"
         elif OFFLINE_RE.search(self.text):
             verdict = "OFFLINE"
         else:

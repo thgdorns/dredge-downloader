@@ -1,4 +1,4 @@
-﻿"""The pass loop: take the queue, run the lanes, fold the rows, come back.
+"""The pass loop: take the queue, run the lanes, fold the rows, come back.
 
 Threads run the worker in this process. The legacy script spawned a child
 PowerShell per URL; a thread is enough here because every engine call is a
@@ -59,7 +59,7 @@ class PassStats:
     ok: dict[str, int] = field(default_factory=dict)
     failed: int = 0
     offline: int = 0
-    preview: int = 0
+    parked: int = 0
     log: Path | None = None
     started: datetime = field(default_factory=_local_now)
 
@@ -596,15 +596,14 @@ def run_pass(
                         records.append_lines(paths.offline, [record_line])
                     stats.offline += 1
                     _mark_failed(runtime, knowledge, lane.url)
-                elif verdict.startswith("PREVIEW|"):
-                    # The archive has the post but only thumbnails; the post
-                    # text was saved next to where the media would go. Nothing
-                    # will fetch the originals until the archive re-imports the
-                    # post, so park it: skip.txt keeps it out of the retry loop
-                    # and out of fail.txt, which is for real errors.
+                elif verdict.startswith(("PREVIEW|", "PRIVATE|")):
+                    # Nothing will ever fetch these: the archive kept only
+                    # thumbnails (PREVIEW), or the video is private and this
+                    # account may not watch it (PRIVATE). Park them in skip.txt:
+                    # fail.txt is for errors a retry can still fix.
                     if not records_frozen:
                         records.append_lines(paths.skip, [record_line])
-                    stats.preview += 1
+                    stats.parked += 1
                     _mark_skip(runtime, knowledge, lane.url)
                 elif not verdict.startswith("OK|"):
                     if not records_frozen:
@@ -675,7 +674,7 @@ def run_pass(
         stats.log,
         f"[{end:%Y-%m-%d %H:%M:%S}] Finished in {elapsed}. OK={stats.ok_total} "
         f"[{stats.engine_summary()}] FAILED={stats.failed} OFFLINE={stats.offline} "
-        f"PREVIEW={stats.preview}",
+        f"PARKED={stats.parked}",
     )
     out(_line(stamp, "Finished.", "green"))
     out(paint.darkgray(f"Run log: {stats.log}"))

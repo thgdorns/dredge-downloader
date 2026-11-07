@@ -666,12 +666,49 @@ def test_a_preview_only_post_is_parked_in_skip_txt(tmp_path, monkeypatch):
     )
 
     assert stats is not None
-    assert stats.preview == 1
+    assert stats.parked == 1
     assert stats.failed == 0
     assert records.read_lines(paths.skip) == ["https://example.com/preview"]
     assert records.read_lines(paths.fail) == []
     assert records.read_lines(paths.queue) == []
     assert "example.com/preview" in runtime.skip_always
+
+
+class FakePrivateWorker:
+    """A worker whose yt-dlp run found a private video."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        pass
+
+    def download(self, url, *, dest, flat, dest_tpl, ignore_records, lane_log,
+                 result, archive, slot, **kwargs):
+        Path(lane_log).write_text(f"[test] {url}\r\n", encoding="utf-8")
+        Path(result).write_text("PRIVATE|yt-dlp", encoding="utf-8")
+        return "PRIVATE|yt-dlp"
+
+
+def test_a_private_video_is_parked_in_skip_txt(tmp_path, monkeypatch):
+    """A private video cannot be fixed by retrying: skip.txt, not fail.txt."""
+    paths = Paths(tmp_path)
+    paths.ensure()
+    settings = Settings.load(
+        paths, dest_default=tmp_path / "dest", max_downloads=1,
+        no_capture=True, progress_every_seconds=0,
+    )
+    records.write_lines(paths.queue, ["https://www.iwara.tv/video/abc"])
+    monkeypatch.setattr(orchestrator, "Worker", FakePrivateWorker)
+
+    runtime = Runtime(paths, settings)
+    stats = run_pass(
+        runtime, Knowledge({}, SiteRule(host="*"), MirrorTable()),
+        orchestrator.Engines(), out=lambda line: None,
+    )
+
+    assert stats is not None
+    assert stats.parked == 1
+    assert stats.failed == 0
+    assert records.read_lines(paths.skip) == ["https://www.iwara.tv/video/abc"]
+    assert records.read_lines(paths.fail) == []
 
 
 def test_a_terminal_gets_one_line_per_lane(tmp_path, monkeypatch):

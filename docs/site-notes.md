@@ -64,13 +64,13 @@ engines see it).
 - `--write-description` (`yt=`) keeps the post text next to the video; that text
   is often where the Mega/Drive links for the full version live.
 - Profile and playlist pages are `list=`-expanded (seconds) instead of crawled.
-- **A private video is not offline.** It answers `Private video. Login if you
-  have permissions to watch` or `Video may need login to view`; it can open
-  later, so it belongs in `skip.txt` (retry skipped when the account changes),
-  not in `offline.txt`. It also answers the same 403 from every engine - one
-  `FAILED`, not a reason to try three more engines. On 2026-11-06, 43
-  `ecchi.iwara.tv` links in `offline.txt` were re-checked: 43 were
-  private/login-gated and moved to `skip.txt`; `wy2rbfkoycrmr803` was a real 404
+- **A private video is not offline.** yt-dlp says `Private video. Login if you
+  have permissions to watch`; the worker answers `PRIVATE|yt-dlp` and the pass
+  parks the link in `skip.txt` (`retry skipped` when the account changes), not
+  in `offline.txt`. The pinned engine means one `FAILED` instead of three more
+  engines answering the same 403. On 2026-11-06, 43 `ecchi.iwara.tv` links in
+  `offline.txt` were re-checked: 43 were private/login-gated and moved to
+  `skip.txt`; `wy2rbfkoycrmr803` was a real 404
   and stayed offline.
 
 ## iwara.ai

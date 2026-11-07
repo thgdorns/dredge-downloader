@@ -80,7 +80,9 @@ class LaneBoard:
     def render(self, width: int | None = None) -> Group:
         """The block, cut to the console width *now* (so a resize shows more)."""
         limit = max(20, (width or self.console.width) - 1)
-        rows: list[Text] = []
+        # A blank row above and below keeps the lanes from running into the log
+        # lines already printed and into the bottom edge of the window.
+        rows: list[Text] = [Text("")]
         if self._paused:
             # The queue is held: say so on the board, or a P press looks ignored
             # while the lanes that were already running keep going.
@@ -97,6 +99,7 @@ class LaneBoard:
             text = self._lines[slot].copy()
             text.truncate(limit, overflow="ellipsis")
             rows.append(text)
+        rows.append(Text(""))
         return Group(*rows)
 
     def set_paused(self, paused: bool, finishing: int = 0) -> None:

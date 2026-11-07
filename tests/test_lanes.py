@@ -96,13 +96,32 @@ def test_without_uris_the_line_stays_plain():
     assert all("link" not in str(span.style) for span in board._lines[1].spans)
 
 
+def _lane_row(board: LaneBoard, width: int) -> str:
+    """The first non-blank row: the block has a blank separator above it."""
+    rows = [text.plain for text in board.render(width=width).renderables]
+    return next(row for row in rows if row)
+
+
+def test_the_block_has_a_blank_line_above_and_below():
+    board = LaneBoard()
+    board.ensure([1, 2])
+    board.set_url(1, 1, 2, "https://example.com/a")
+    board.set_url(2, 2, 2, "https://example.com/b")
+
+    rows = [text.plain for text in board.render(width=80).renderables]
+
+    assert rows[0] == "" and rows[-1] == ""     # separates lanes from the log
+    assert len(rows) == 4                       # blank + 2 lanes + blank
+    assert "example.com/a" in rows[1]
+
+
 def test_a_wider_terminal_shows_more_of_the_line():
     board = LaneBoard()
     url = "https://example.com/" + "x" * 80
     board.set_url(1, 1, 1, url)
 
-    narrow = board.render(width=40).renderables[0].plain
-    wide = board.render(width=200).renderables[0].plain
+    narrow = _lane_row(board, 40)
+    wide = _lane_row(board, 200)
 
     assert narrow.endswith("…")
     assert len(wide) > len(narrow)

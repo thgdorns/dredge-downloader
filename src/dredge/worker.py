@@ -12,11 +12,13 @@ for the next pass), ``FAILED``, ``OFFLINE``.
 
 from __future__ import annotations
 
+import html as html_lib
 import os
 import re
 import tempfile
 import threading
 import time
+import urllib.request
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -39,6 +41,29 @@ _QUOTA_STOP = (
     r"(?i)(?:server returned 509|over ?quota|transfer quota|quota exceeded"
     r"|EBLOCKED)"
 )
+
+# A Drive folder's own name, for the output folder instead of its id. The
+# public folder page carries the name in its <title> ("加长HMV - Google Drive");
+# one request per folder is cheap next to the download. A failed lookup returns
+# "" so the caller falls back to the id, which is where gdown would put it.
+_DRIVE_TITLE = re.compile(r"<title>(.*?)</title>", re.DOTALL | re.IGNORECASE)
+_BAD_FOLDER_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def drive_folder_name(folder_id: str, timeout: float = 15.0) -> str:
+    url = f"https://drive.google.com/drive/folders/{folder_id}"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            page = response.read().decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001 - a name is optional, never fatal
+        return ""
+    match = _DRIVE_TITLE.search(page)
+    if not match:
+        return ""
+    name = html_lib.unescape(match.group(1)).strip()
+    name = re.sub(r"\s*-\s*Google Drive$", "", name, flags=re.IGNORECASE)
+    name = _BAD_FOLDER_CHARS.sub("_", name).strip().rstrip(".")
+    return name[:120]
 
 
 @dataclass(frozen=True)
@@ -170,6 +195,7 @@ class Worker:
         self._lock = threading.Lock()
         self._url = ""
         self._temps: list[Path] = []
+        self._drive_names: dict[str, str] = {}
         self._extractor = ""
 
     # -- logging ---------------------------------------------------------
@@ -819,10 +845,19 @@ class Worker:
         return args
 
     def _gdown_output(self, url: str, dest: Path) -> str:
-        """Where gdown writes: a folder link gets a folder named after its id."""
+        """Where gdown writes: a folder link gets a folder with the folder's name.
+
+        gdown would name it after the raw id, which says nothing; the folder's
+        own name is what a person recognises.
+        """
         match = re.search(r"/folders/([A-Za-z0-9_-]+)", url)
+        if not match and "folderview" in url:
+            match = re.search(r"[?&]id=([A-Za-z0-9_-]+)", url)
         if match:
-            return str(dest / match.group(1))
+            folder_id = match.group(1)
+            if folder_id not in self._drive_names:
+                self._drive_names[folder_id] = drive_folder_name(folder_id)
+            return str(dest / (self._drive_names[folder_id] or folder_id))
         return str(dest) + os.sep      # trailing separator: keep the file's name
 
     def _gdown_cookies(self) -> list[str]:

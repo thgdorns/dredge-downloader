@@ -144,6 +144,68 @@ def test_a_blocked_mega_ip_fails_fast_and_says_so(tmp_path, monkeypatch):
     assert 'blocked this IP' in log
 
 
+def test_a_drive_folder_is_named_after_the_folder_not_its_id(tmp_path, monkeypatch):
+    rule = parse_rule('drive.google.com engine=gdown')
+    paths = Paths(tmp_path)
+    settings = Settings.load(paths, dest_default=tmp_path / 'dest', dry_run=False)
+    paths.cookies.parent.mkdir(parents=True, exist_ok=True)
+    paths.cookies.write_text('# Netscape HTTP Cookie File\n', encoding='utf-8')
+    calls: list[list[str]] = []
+
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None):
+        calls.append(list(args))
+        target = Path(args[args.index('-O') + 1])
+        target.mkdir(parents=True, exist_ok=True)
+        (target / 'clip.mp4').write_bytes(b'x' * 10)
+        return 0, 'Download completed'
+
+    monkeypatch.setattr(worker_module, 'run', fake)
+    monkeypatch.setattr(
+        worker_module, 'drive_folder_name', lambda fid, timeout=15.0: '加长HMV'
+    )
+    worker = Worker(paths, settings, Engines(gdown='gdown'), knowledge(rule))
+    verdict = worker.download(
+        'https://drive.google.com/drive/folders/FOLDERID?usp=sharing',
+        dest=tmp_path / 'dest',
+        lane_log=tmp_path / 'lane1.log',
+        result=tmp_path / 'lane1.result',
+        archive=tmp_path / 'lane1.archive',
+    )
+
+    assert verdict == 'OK|gdown'
+    assert Path(calls[0][calls[0].index('-O') + 1]).name == '加长HMV'
+
+
+def test_a_drive_folder_falls_back_to_the_id(monkeypatch):
+    class Fake:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return b'not a drive page'
+
+    monkeypatch.setattr(worker_module.urllib.request, 'urlopen', lambda *a, **k: Fake())
+    assert worker_module.drive_folder_name('abc123') == ''
+
+
+def test_a_drive_folder_name_is_cleaned(monkeypatch):
+    class Fake:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return b'<title>a/b: c &#x27;d&#x27; - Google Drive</title>'
+
+    monkeypatch.setattr(worker_module.urllib.request, 'urlopen', lambda *a, **k: Fake())
+    assert worker_module.drive_folder_name('abc123') == "a_b_ c 'd'"
+
+
 def test_gallery_dl_success_writes_a_row(tmp_path, monkeypatch):
     verdict, root = run(tmp_path, monkeypatch, {"gdl": {"rc": 0, "file": "clip.mp4"}})
 
@@ -920,6 +982,10 @@ def test_a_drive_folder_link_gets_a_folder_named_by_its_id(tmp_path, monkeypatch
         return 0, ""
 
     monkeypatch.setattr(worker_module, "run", fake)
+    # No network in a unit test: an empty name keeps the id-based fallback.
+    monkeypatch.setattr(
+        worker_module, "drive_folder_name", lambda fid, timeout=15.0: ""
+    )
     worker = Worker(paths, settings, Engines(gdown="gdown"), knowledge(rule))
     verdict = worker.download(
         "https://drive.google.com/drive/folders/15uNXeRBIhVvZJIhL4yTw4IsStMhUaaxl",
@@ -953,6 +1019,9 @@ def test_a_short_link_is_resolved_before_the_engine_lookup(tmp_path, monkeypatch
     monkeypatch.setattr(worker_module, "run", fake)
     monkeypatch.setattr(
         worker_module, "resolve_short_url", lambda url, hosts: final
+    )
+    monkeypatch.setattr(
+        worker_module, "drive_folder_name", lambda fid, timeout=15.0: ""
     )
     worker = Worker(
         paths, settings, Engines(gdown="gdown"), knowledge(rule),

@@ -215,6 +215,27 @@ engines see it).
   after the id. `parse-metadata` in `ytdlp.conf` copies the real title out of the
   URL slug (and turns `+` back into spaces).
 
+## Pixiv - pixiv.net
+
+- **Artwork pages are images, so gallery-dl is the only engine that can fetch
+  them.** yt-dlp has no pixiv extractor: the generic tier answers
+  `Unsupported URL: .../artworks/<id>`, which is why a failure used to appear
+  with no reason at all. `sites.txt` pins `pixiv.net engine=gdl` so the attempt
+  and its error are visible.
+- **gallery-dl needs a refresh token; cookies alone are not enough.** Its docs
+  say OAuth is *necessary* for pixiv. Without `extractor.pixiv.refresh-token`
+  every link stops at `AuthenticationError: 'refresh-token' required`, even with
+  a valid `config/cookies.txt` and a logged-in browser. Get one with
+  `gallery-dl oauth:pixiv` and put it under `extractor` → `pixiv` →
+  `refresh-token` in `config/gallery-dl.conf`.
+- The `#ppixiv` fragment that the ppixiv userscript appends is harmless:
+  `canon`/`keys` already drop it (so re-queueing with or without it is the same
+  link), and gallery-dl matches the path. It is *not* stripped from `dl_url`
+  because fragments are load-bearing elsewhere - a MEGA link's `#<key>` is the
+  decryption key.
+- Bookmark listings (`bookmark_new_illust.php?...`) are pages, not posts; they
+  only work with the token too and expand into many artworks.
+
 ## The generic tier (last yt-dlp pass)
 
 - Not a default: only hosts listed in `generic-sites.txt` may reach it

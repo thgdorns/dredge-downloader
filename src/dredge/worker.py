@@ -7,12 +7,14 @@ or produced nothing. A host never picks an engine; the only skip is
 ``engine=gdl`` in ``sites.txt`` and "gallery-dl knows this creator page".
 
 Verdicts: ``OK|<engine>``, ``OK|expanded`` (a flat listing staged its item URLs
-for the next pass), ``FAILED``, ``OFFLINE``.
+for the next pass), ``PREVIEW|<engine>`` (the archive has only thumbnails, so
+the post text was saved and the link is parked), ``FAILED``, ``OFFLINE``.
 """
 
 from __future__ import annotations
 
 import html as html_lib
+import json
 import os
 import re
 import tempfile
@@ -33,6 +35,10 @@ from .urls import Knowledge, Playlist, host, resolve_short_url
 
 _PATH_CHARS = r'[^\r\n"<>|]+'
 _SKIP_LINE = re.compile(r"(?m)^#\s+(.+?)\s*$")
+# The kemono family stores a post's files even when only the thumbnail was
+# archived; gallery-dl refuses to save that thumbnail as the real file and says
+# so. Nothing will ever fetch the original, so this is not a failure.
+_PREVIEW_LINE = re.compile(r"\('preview only'\)")
 
 # Conditions an engine retries forever instead of failing. megatools sleeps for
 # minutes per chunk on a MEGA "509 over quota", so the lane would stay busy
@@ -93,10 +99,39 @@ class GalleryResult:
     pages_manifest: Path | None = None
     handled: bool = False
     auth: str = ""
+    preview: bool = False
 
 
 def _now() -> str:
     return time.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _post_id(url: str) -> str:
+    """The last path segment of a post URL - what the folder is named after."""
+    path = url.split("?", 1)[0].split("#", 1)[0].rstrip("/")
+    return path.rsplit("/", 1)[-1]
+
+
+def _safe_name(name: str) -> str:
+    """A filename fragment that every filesystem accepts."""
+    cleaned = re.sub(r'[\\/:*?"<>|\r\n\t]+', " ", name)
+    return re.sub(r"\s+", " ", cleaned).strip()[:120].strip()
+
+
+def _description_text(data: dict, url: str) -> str:
+    """A plain-text ``.description`` from gallery-dl's post metadata."""
+    title = str(data.get("title") or "").strip()
+    content = str(data.get("content") or "")
+    content = re.sub(r"(?i)<br\s*/?>", "\n", content)
+    content = re.sub(r"(?i)</p\s*>", "\n\n", content)
+    content = re.sub(r"<[^>]+>", "", content)
+    content = html_lib.unescape(content)
+    content = re.sub(r"[ \t]+\n", "\n", content)
+    content = re.sub(r"\n{3,}", "\n\n", content).strip()
+    head = "\n".join(
+        part for part in (title, url, str(data.get("published") or "")) if part
+    )
+    return f"{head}\n\n{content}\n" if content else f"{head}\n"
 
 
 def _clock() -> str:
@@ -387,6 +422,8 @@ class Worker:
             gdl_handled = gallery.handled
             if gallery.auth:
                 return self._finish(f"AUTH|{gallery.auth}", result)
+            if gallery.preview:
+                return self._finish("PREVIEW|gallery-dl", result)
 
         # --- tier 1f: file-host engines ---------------------------------
         if not engine and not dry and pin_filehost:
@@ -647,7 +684,67 @@ class Worker:
             result.handled = True
         if dl_rule and dl_rule.engine == "gdl":
             result.handled = True
+
+        if (
+            exit_ok and not gdl_err and not playlist
+            and _PREVIEW_LINE.search(out) and not made and not existing
+        ):
+            # The archive knows the post's files but kept only thumbnails:
+            # gallery-dl will not save a thumbnail under the real filename, and
+            # no other engine has the original either. Not a failure - the pass
+            # parks the link, but this must not look like a dead post or be
+            # retried forever.
+            self._lane(
+                "[gallery-dl] the archive has previews only - parking the link"
+            )
+            if self.settings.preview_description.strip().lower() not in (
+                "off", "no", "false", "0", "",
+            ):
+                self._save_description(final_dest, dl, args)
+            result.preview = True
+            result.handled = True
         return result
+
+    def _save_description(self, dest: Path, url: str, args: list[str]) -> None:
+        """Save the post text where gallery-dl would have put the media.
+
+        ``--write-info-json`` writes the post metadata even when every file is
+        skipped, into the same folder the files would have gone to. The
+        ``.description`` beside it is the same plain-text sidecar yt-dlp writes
+        for a video, so a preview-only post still leaves a record of what it is.
+        """
+        if self.settings.dry_run:
+            return
+        rc, _ = self._engine_run(
+            [self.engines.gdl, "--write-info-json", *args],
+            cwd=self.paths.root, sink=self._sink,
+        )
+        if rc != 0:
+            self._lane("[gallery-dl] the post text could not be fetched")
+            return
+        info = self._find_info(dest, _post_id(url))
+        if info is None:
+            self._lane("[gallery-dl] no info.json was written - no post text to keep")
+            return
+        try:
+            data = json.loads(info.read_text(encoding="utf-8", errors="replace"))
+            stem = _safe_name(f"{data.get('id') or info.parent.name}_{data.get('title') or ''}")
+            target = info.parent / f"{stem or 'post'}.description"
+            target.write_text(_description_text(data, url), encoding="utf-8")
+        except (OSError, ValueError):
+            return
+
+    @staticmethod
+    def _find_info(dest: Path, post_id: str) -> Path | None:
+        """The info.json gallery-dl wrote for this post, if it is findable."""
+        if not post_id:
+            return None
+        for pattern in (f"{post_id}/info.json", f"*/{post_id}/info.json",
+                        f"*/*/{post_id}/info.json"):
+            for path in dest.glob(pattern):
+                if path.is_file():
+                    return path
+        return None
 
     def _ytdlp_author(self, url: str) -> str:
         """The uploader's display name from yt-dlp (gallery-dl often has the handle)."""

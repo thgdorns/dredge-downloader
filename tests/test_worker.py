@@ -1,4 +1,5 @@
-﻿import os
+﻿import json
+import os
 from pathlib import Path
 
 import dredge.worker as worker_module
@@ -34,6 +35,13 @@ def make_runner(behaviour: dict[str, dict]):
                 # after_move:extractor belongs to the extractor file
                 if template.startswith(("after_move:filepath", "after:{_path}")):
                     manifest = Path(args[index + 2])
+        if dest and "--write-info-json" in args and spec.get("info") is not None:
+            # the post metadata gallery-dl writes even when every file is skipped
+            info_dir = dest / spec.get("info_dir", "")
+            info_dir.mkdir(parents=True, exist_ok=True)
+            (info_dir / "info.json").write_text(
+                json.dumps(spec["info"]), encoding="utf-8"
+            )
         names = spec.get("files") or ([spec["file"]] if spec.get("file") else [])
         saved: list[str] = []
         if dest:
@@ -63,9 +71,11 @@ def make_runner(behaviour: dict[str, dict]):
 
 
 def run(tmp_path, monkeypatch, behaviour, rule=None, url="https://example.com/post/1",
-        strict: bool | None = None):
+        strict: bool | None = None, **setting_overrides):
     paths = Paths(tmp_path)
-    settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
+    settings = Settings.load(
+        paths, dest_default=tmp_path / "dest", dry_run=False, **setting_overrides
+    )
     monkeypatch.setattr(worker_module, "run", make_runner(behaviour))
     worker = Worker(paths, settings, Engines(yt="yt-dlp", gdl="gallery-dl"),
                     knowledge(rule), strict_generic=strict)
@@ -77,6 +87,61 @@ def run(tmp_path, monkeypatch, behaviour, rule=None, url="https://example.com/po
         archive=tmp_path / "lane1.archive",
     )
     return verdict, tmp_path
+
+
+def test_a_preview_only_post_is_parked_without_fetching_the_text(
+    tmp_path, monkeypatch
+):
+    """The default is the park, not the description: it is a preference."""
+    behaviour = {"gdl": {
+        "rc": 0,
+        "text": "[pawchive][info] 1: Skipping abc.jpg ('preview only')",
+        "files": [],
+        "info": {"id": "1", "title": "A post", "content": "<p>Hello</p>"},
+        "info_dir": "creator/1",
+    }}
+
+    verdict, root = run(
+        tmp_path, monkeypatch, behaviour, url="https://example.com/post/1"
+    )
+
+    assert verdict == "PREVIEW|gallery-dl"
+    assert not list((root / "dest").rglob("*.description"))
+    assert not list((root / "dest").rglob("info.json"))
+
+
+def test_a_preview_only_post_keeps_its_text_when_asked(tmp_path, monkeypatch):
+    """With preview_description on, the post text is saved beside nothing.
+
+    gallery-dl skips a preview by design, so this used to look like a plain
+    failure. It is not one: no engine will ever get the original out of the
+    archive, and the post text is the only thing that can still be saved.
+    """
+    behaviour = {"gdl": {
+        "rc": 0,
+        "text": "[pawchive][info] 1: Skipping abc.jpg ('preview only')",
+        "files": [],
+        "info": {
+            "id": "1",
+            "title": "A post",
+            "content": "<p>Hello &amp; welcome</p><p>second line</p>",
+            "published": "2025-12-30T22:02:47",
+        },
+        "info_dir": "creator/1",
+    }}
+
+    verdict, root = run(
+        tmp_path, monkeypatch, behaviour, url="https://example.com/post/1",
+        preview_description="on",
+    )
+
+    assert verdict == "PREVIEW|gallery-dl"
+    description = root / "dest" / "creator" / "1" / "1_A post.description"
+    assert description.exists()
+    text = description.read_text(encoding="utf-8")
+    assert "Hello & welcome" in text
+    assert "second line" in text
+    assert "https://example.com/post/1" in text
 
 
 def test_a_missing_gallery_dl_token_asks_the_pass_to_authorize(tmp_path, monkeypatch):

@@ -297,6 +297,10 @@ class Settings:
     # "WARNING: one URL produced N files (looks like a page listing)". A pixiv
     # gallery legitimately does this, so it can be turned off.
     warn_page_listing: str = "on"
+    # A mirror can keep only a thumbnail of a post's files. The link goes to
+    # skip.txt either way; this also saves the post text as a .description in
+    # the folder the media would have gone to (a preference, not a default).
+    preview_description: str = "off"
     # After a host answers "out of quota" (MEGA's 509/EBLOCKED are per IP), the
     # rest of its links wait this many minutes instead of failing one by one.
     quota_block_minutes: int = 60
@@ -374,7 +378,7 @@ def _read_conf(path: Path) -> tuple[dict[str, object], dict[str, dict[str, str]]
         "cookies_browser": str,
         "idle_seconds": int, "progress_every_seconds": int,
         "stall_seconds": int, "warn_page_listing": str,
-        "quota_block_minutes": int,
+        "quota_block_minutes": int, "preview_description": str,
         "fold_batch_rows": int, "fold_batch_seconds": int,
     }
     out: dict[str, object] = {}

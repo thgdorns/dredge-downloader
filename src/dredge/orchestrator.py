@@ -59,6 +59,7 @@ class PassStats:
     ok: dict[str, int] = field(default_factory=dict)
     failed: int = 0
     offline: int = 0
+    preview: int = 0
     log: Path | None = None
     started: datetime = field(default_factory=_local_now)
 
@@ -571,6 +572,15 @@ def run_pass(
                     records.append_lines(paths.offline, [record_line])
                     stats.offline += 1
                     _mark_failed(runtime, knowledge, lane.url)
+                elif verdict.startswith("PREVIEW|"):
+                    # The archive has the post but only thumbnails; the post
+                    # text was saved next to where the media would go. Nothing
+                    # will fetch the originals until the archive re-imports the
+                    # post, so park it: skip.txt keeps it out of the retry loop
+                    # and out of fail.txt, which is for real errors.
+                    records.append_lines(paths.skip, [record_line])
+                    stats.preview += 1
+                    _mark_skip(runtime, knowledge, lane.url)
                 elif not verdict.startswith("OK|"):
                     records.append_lines(paths.fail, [record_line])
                     stats.failed += 1
@@ -607,6 +617,8 @@ def run_pass(
                 url_text = (
                     paint.lightgreen(lane.url)
                     if verdict.startswith("OK|")
+                    else paint.yellow(lane.url)
+                    if verdict.startswith("PREVIEW|")
                     else paint.lightred(lane.url)
                 )
                 out(_line(
@@ -636,7 +648,8 @@ def run_pass(
     _log_line(
         stats.log,
         f"[{end:%Y-%m-%d %H:%M:%S}] Finished in {elapsed}. OK={stats.ok_total} "
-        f"[{stats.engine_summary()}] FAILED={stats.failed} OFFLINE={stats.offline}",
+        f"[{stats.engine_summary()}] FAILED={stats.failed} OFFLINE={stats.offline} "
+        f"PREVIEW={stats.preview}",
     )
     out(_line(stamp, "Finished.", "green"))
     out(paint.darkgray(f"Run log: {stats.log}"))
@@ -807,6 +820,17 @@ def _mark_failed(runtime: Runtime, knowledge: Knowledge, url: str) -> None:
     ident = knowledge.seen_id(keys[0])
     if ident:
         runtime.failed.add(ident)
+
+
+def _mark_skip(runtime: Runtime, knowledge: Knowledge, url: str) -> None:
+    """Count a link as skip.txt for the rest of the pass, without a re-read."""
+    keys = knowledge.keys(url)
+    if not keys:
+        return
+    runtime.skip_always.update(keys)
+    ident = knowledge.seen_id(keys[0])
+    if ident:
+        runtime.skip_always.add(ident)
 
 
 def _fold(

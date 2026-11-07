@@ -29,6 +29,16 @@ engines see it).
   `Incomplete/Missing file import ('pending')`; the file URL answers 404 until
   the mirror imports it. That is *temporary* - it must land in `fail.txt`, never
   in `offline.txt` (the "pending import" phrase is part of `RATE_RE`).
+- **A post can also carry only previews.** The API marks each file
+  `preview_only: true` when the mirror kept the thumbnail but not the original;
+  gallery-dl refuses to save a thumbnail under the real filename, logs
+  `Skipping … ('preview only')` and exits 0 having fetched nothing. No engine can
+  do better until the mirror re-imports the post, so the worker answers
+  `PREVIEW|gallery-dl` and the pass parks the link in `skip.txt` - not
+  `fail.txt`, which is for errors worth retrying. `preview_description = on` in
+  `dredge.conf` also saves the post text as `<id>_<title>.description` in the
+  folder the media would have used, read from the `info.json` gallery-dl writes
+  there (off by default: a preference, not a rule).
 - **The archive key is the file, not the post**: `patreon_<user>_<post>_<n>`.
   Post-level rows come from `postid=`/`posturl=` splitting a crawl into one row
   per post, which is what makes a re-queue of a creator page add only new posts.

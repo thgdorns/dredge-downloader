@@ -634,6 +634,45 @@ def test_a_locked_archive_keeps_its_rows(tmp_path, monkeypatch):
     assert paths.fold_pending.read_text(encoding="utf-8").strip() == ""
 
 
+class FakePreviewWorker:
+    """A worker whose gallery-dl run found only previews on the archive."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        pass
+
+    def download(self, url, *, dest, flat, dest_tpl, ignore_records, lane_log,
+                 result, archive, slot, **kwargs):
+        Path(lane_log).write_text(f"[test] {url}\r\n", encoding="utf-8")
+        Path(result).write_text("PREVIEW|gallery-dl", encoding="utf-8")
+        return "PREVIEW|gallery-dl"
+
+
+def test_a_preview_only_post_is_parked_in_skip_txt(tmp_path, monkeypatch):
+    """Previews are not a failure: skip.txt, not fail.txt, and no retry loop."""
+    paths = Paths(tmp_path)
+    paths.ensure()
+    settings = Settings.load(
+        paths, dest_default=tmp_path / "dest", max_downloads=1,
+        no_capture=True, progress_every_seconds=0,
+    )
+    records.write_lines(paths.queue, ["https://example.com/preview"])
+    monkeypatch.setattr(orchestrator, "Worker", FakePreviewWorker)
+
+    runtime = Runtime(paths, settings)
+    stats = run_pass(
+        runtime, Knowledge({}, SiteRule(host="*"), MirrorTable()),
+        orchestrator.Engines(), out=lambda line: None,
+    )
+
+    assert stats is not None
+    assert stats.preview == 1
+    assert stats.failed == 0
+    assert records.read_lines(paths.skip) == ["https://example.com/preview"]
+    assert records.read_lines(paths.fail) == []
+    assert records.read_lines(paths.queue) == []
+    assert "example.com/preview" in runtime.skip_always
+
+
 def test_a_terminal_gets_one_line_per_lane(tmp_path, monkeypatch):
     paths = Paths(tmp_path)
     paths.ensure()

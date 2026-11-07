@@ -27,7 +27,7 @@ from .destinations import destination_for, filehost_folder
 from .engines import Engines, dir_signature, probe_down, produced, run
 from .mega import folder_name as mega_folder_name
 from .sites import SiteRule
-from .urls import Knowledge, Playlist
+from .urls import Knowledge, Playlist, resolve_short_url
 
 _PATH_CHARS = r'[^\r\n"<>|]+'
 _SKIP_LINE = re.compile(r"(?m)^#\s+(.+?)\s*$")
@@ -149,6 +149,7 @@ class Worker:
         knowledge: Knowledge,
         *,
         filehosts: tuple[str, ...] = (),
+        shorteners: tuple[str, ...] = (),
         strict_generic: bool | None = None,
     ) -> None:
         self.paths = paths
@@ -156,6 +157,7 @@ class Worker:
         self.engines = engines
         self.knowledge = knowledge
         self.filehosts = filehosts
+        self.shorteners = shorteners
         self.strict = (
             settings.strict_generic if strict_generic is None else strict_generic
         )
@@ -217,26 +219,31 @@ class Worker:
         except OSError:
             self._log_path = None
 
+        resolved = resolve_short_url(url, self.shorteners)
+        if resolved != url:
+            self._lane(f"[redirect] {url} -> {resolved}")
+
         if dest is None:
-            target = destination_for(url, self.knowledge, self.settings)
+            target = destination_for(resolved, self.knowledge, self.settings)
             dest_root = target.path
             flat = target.layout == "flat"
             dest_tpl = target.tpl
         else:
             dest_root = Path(dest)
         folder = filehost_folder(
-            url, self.knowledge, self.filehosts, mega_name=mega_folder_name(url)
+            resolved, self.knowledge, self.filehosts,
+            mega_name=mega_folder_name(resolved),
         )
         final_dest = dest_root / folder if folder else dest_root
         if folder:
             self._lane(f"[filehost] writing into {folder}\\")
 
-        dl = self.knowledge.dl_url(url)
-        if dl != url:
+        dl = self.knowledge.dl_url(resolved)
+        if dl != resolved:
             from .urls import host as url_host
 
-            if url_host(dl) != url_host(url):
-                self._lane(f"[mirror] {url_host(url)} -> {url_host(dl)}")
+            if url_host(dl) != url_host(resolved):
+                self._lane(f"[mirror] {url_host(resolved)} -> {url_host(dl)}")
             else:
                 self._lane(f"[url] tracking stripped: {dl}")
         final_dest.mkdir(parents=True, exist_ok=True)
@@ -254,7 +261,7 @@ class Worker:
         ignore_args = ["--no-download-archive"] if ignore else []
         refresh_args = ["--force-overwrites"] if refresh else []
 
-        rule = self.knowledge.rule(url)
+        rule = self.knowledge.rule(resolved)
         dl_rule = self.knowledge.rule(dl) or rule
         site_yt = list((dl_rule or rule).yt) if (dl_rule or rule) else []
 
@@ -275,7 +282,7 @@ class Worker:
                 if verdict:
                     return self._finish(verdict, result)
 
-        playlist = self.knowledge.playlist(url)
+        playlist = self.knowledge.playlist(resolved)
         page_ids: list[str] = []
         gdl_handled = False
         engine: str | None = None
@@ -316,7 +323,7 @@ class Worker:
         # --- tier 1: gallery-dl -----------------------------------------
         if self.engines.gdl and (not pinned or pin_gdl):
             gallery = self._gallery_tier(
-                url, dl, final_dest, flat, folder, dl_rule, playlist,
+                resolved, dl, final_dest, flat, folder, dl_rule, playlist,
                 files_manifest, sim, ignore, archive, sig0, dry, target_file,
             )
             engine = gallery.engine
@@ -366,7 +373,7 @@ class Worker:
         if not engine and not gdl_handled and self.engines.yt and (
             not pinned or pin_yt
         ):
-            self._lane(f"[yt-dlp] {url}")
+            self._lane(f"[yt-dlp] {resolved}")
             yt_args: list[str] = []
             if dl_rule and dl_rule.native:
                 yt_args = ["--downloader", "native"]
@@ -382,7 +389,7 @@ class Worker:
             if rc == 0 and produced(final_dest, sig0, self.text, dry):
                 engine = "yt-dlp"
                 self._extractor = self._read_extractor(extractor_file)
-                if self._strict_blocks(url, self._extractor):
+                if self._strict_blocks(resolved, self._extractor):
                     engine = None
                     blocked = True
             yt_log = "\n".join(self._buffer[mark:])
@@ -393,7 +400,7 @@ class Worker:
             and not re.search(r"Unsupported URL|is not a valid URL", yt_log)
             and self.engines.yt
         ):
-            self._lane(f"[yt-dlp-native] {url} (retry without aria2c)")
+            self._lane(f"[yt-dlp-native] {resolved} (retry without aria2c)")
             sig1 = dir_signature(final_dest)
             rc, _ = run(
                 [self.engines.yt, "--ignore-config", "--config-locations",
@@ -405,7 +412,7 @@ class Worker:
             if rc == 0 and produced(final_dest, sig1, self.text, False):
                 engine = "yt-dlp-native"
                 self._extractor = self._read_extractor(extractor_file)
-                if self._strict_blocks(url, self._extractor):
+                if self._strict_blocks(resolved, self._extractor):
                     engine = None
                     blocked = True
 
@@ -413,7 +420,7 @@ class Worker:
         if self.strict and not gdl_handled and not pinned:
             from .urls import host as url_host
 
-            h = url_host(url)
+            h = url_host(resolved)
             generic_allowed = any(
                 h == d or h.endswith("." + d) for d in self._generic_sites()
             )
@@ -427,7 +434,7 @@ class Worker:
             not engine and not blocked and not gdl_handled and generic_allowed
             and self.engines.yt and not pinned
         ):
-            self._lane(f"[yt-dlp-generic] {url}")
+            self._lane(f"[yt-dlp-generic] {resolved}")
             rc, _ = run(
                 [self.engines.yt, "--ignore-config", "--config-locations",
                  str(self.paths.ytdlp_generic_conf), *ignore_args, *refresh_args,

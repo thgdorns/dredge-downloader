@@ -292,6 +292,7 @@ def run_pass(
                 worker = Worker(
                     paths, settings, engines, knowledge,
                     filehosts=filehosts,
+                    shorteners=load_domains(paths.shorteners),
                     strict_generic=runtime.strict_generic,
                 )
                 thread = threading.Thread(

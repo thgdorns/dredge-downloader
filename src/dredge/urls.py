@@ -7,7 +7,10 @@ names a site.
 
 from __future__ import annotations
 
+import http.cookiejar
 import re
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -52,6 +55,68 @@ def host(url: str) -> str:
     except ValueError:
         return ""
     return name.lower().removeprefix("www.")
+
+
+_BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/131.0 Safari/537.36"
+)
+
+
+def is_shortener(url: str, hosts: tuple[str, ...]) -> bool:
+    """True when the URL's host is in the configured shortener list."""
+    h = host(url)
+    return bool(h) and any(h == d or h.endswith("." + d) for d in hosts)
+
+
+def resolve_short_url(
+    url: str,
+    hosts: tuple[str, ...],
+    *,
+    timeout: float = 10.0,
+    opener=None,
+) -> str:
+    """Follow a shortener's HTTP redirects and return the final URL.
+
+    Only hosts in ``hosts`` are touched, so a normal link costs nothing. HEAD is
+    tried first (no body); some servers refuse it, so a ranged GET is the
+    fallback. Any failure returns the original URL, leaving the normal tier
+    chain to decide what to do.
+    """
+    if not hosts or not is_shortener(url, hosts):
+        return url
+    if not url.lower().startswith(("http://", "https://")):
+        return url
+    if opener is None:
+        # A cookie jar matches requests.Session: some shorteners set a consent
+        # cookie on the first hop and expect it back on the redirect.
+        opener = urllib.request.build_opener(
+            urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar())
+        ).open
+    open_url = opener
+    headers = {"User-Agent": _BROWSER_UA, "Accept": "*/*"}
+    attempts = (("HEAD", {}), ("GET", {"Range": "bytes=0-0"}), ("GET", {}))
+    for method, extra in attempts:
+        request = urllib.request.Request(
+            url, headers={**headers, **extra}, method=method
+        )
+        try:
+            with open_url(request, timeout=timeout) as response:
+                final = response.geturl()
+        except urllib.error.HTTPError as exc:
+            # requests does not raise on 4xx: the final URL is still the answer,
+            # so the engine can classify the target instead of the shortener.
+            final = exc.geturl()
+            if final and final != url and final.lower().startswith(
+                ("http://", "https://")
+            ):
+                return final
+            continue
+        except (urllib.error.URLError, OSError, ValueError):
+            continue
+        if final and final != url and final.lower().startswith(("http://", "https://")):
+            return final
+    return url
 
 
 def _bare(hostname: str, mirrors: MirrorTable | None) -> str:

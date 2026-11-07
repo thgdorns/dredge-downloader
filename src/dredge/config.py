@@ -99,6 +99,10 @@ class Paths:
         return self.config / "filehosts.txt"
 
     @property
+    def shorteners(self) -> Path:
+        return self.config / "shorteners.txt"
+
+    @property
     def generic_sites(self) -> Path:
         return self.config / "generic-sites.txt"
 

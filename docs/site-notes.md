@@ -109,6 +109,15 @@ engines see it).
   `-c` resumes a partial file and skips a finished one.
 - A folder link writes into `<dest>/<folder id>`: the folder name is not in the
   link (same fallback MEGA uses).
+- **Short links are resolved before the rule lookup.** `config/shorteners.txt`
+  lists goo.gl, bit.ly, ...; `resolve_short_url` follows the HTTP redirect first.
+  `goo.gl/jkGHi0` becomes `drive.google.com/drive/folders/...`, so the drive rule
+  selects gdown. The engines cannot do this themselves: gdown reads `jkGHi0` as
+  a folder id and 404s, yt-dlp's generic pass errors, gallery-dl says
+  `Unsupported URL`.
+- gdown prints the filenames before fetching; `engines.run` gives child
+  processes `PYTHONIOENCODING=utf-8`, so a Drive folder with Japanese names does
+  not die on the Windows ANSI code page.
 - Two refusals are *temporary*: `Cannot retrieve the public link` (not shared
   any more, or the per-file access limit) and the "too many users have viewed"
   quota. Both are a `FAILED` with a lane note, retried later.

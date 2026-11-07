@@ -112,6 +112,11 @@ def run(
     """
     lines: list[str] = []
     stop = re.compile(stop_on) if stop_on else None
+    # The child's own stdout encoding, not just the pipe's: gdown prints the
+    # filenames it is about to write, and a drive folder with Japanese names
+    # dies on the Windows ANSI code page before the first byte is fetched.
+    env = dict(os.environ)
+    env["PYTHONIOENCODING"] = "utf-8"
     proc = subprocess.Popen(
         list(args),
         cwd=str(cwd),
@@ -120,6 +125,7 @@ def run(
         text=True,
         encoding="utf-8",
         errors="replace",
+        env=env,
         creationflags=_NO_WINDOW,
     )
     try:

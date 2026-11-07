@@ -1,0 +1,24 @@
+# URL shorteners: the link is resolved through its HTTP redirects before the
+# site rules and engines see it. One domain per line; subdomains match.
+#
+# This is what makes goo.gl/jkGHi0 work: the resolver follows the 302 to
+# drive.google.com/drive/folders/<id>, and the drive.google.com rule then
+# selects gdown. A link from a host not listed here is left untouched.
+
+goo.gl
+bit.ly
+t.co
+tinyurl.com
+is.gd
+v.gd
+ow.ly
+buff.ly
+rebrand.ly
+cutt.ly
+tiny.cc
+rb.gy
+s.id
+lnk.to
+trib.al
+ift.tt
+shorturl.at

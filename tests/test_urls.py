@@ -1,4 +1,12 @@
-from dredge.urls import canon, host, seen_id
+import urllib.error
+
+from dredge.urls import (
+    canon,
+    host,
+    is_shortener,
+    resolve_short_url,
+    seen_id,
+)
 
 
 def test_host_strips_www_and_scheme():
@@ -28,3 +36,101 @@ def test_seen_id_matches_id_alone_or_after_slug():
 def test_host_strips_port_and_userinfo():
     assert host("http://127.0.0.1:8766/x") == "127.0.0.1"
     assert host("https://user:pass@www.example.com:443/a") == "example.com"
+
+
+class _Response:
+    def __init__(self, url: str) -> None:
+        self.url = url
+
+    def geturl(self) -> str:
+        return self.url
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+def test_shortener_hosts_match_subdomains():
+    assert is_shortener("https://goo.gl/jkGHi0", ("goo.gl",))
+    assert is_shortener("https://www.goo.gl/x", ("goo.gl",))
+    assert not is_shortener("https://example.com/x", ("goo.gl",))
+
+
+def test_resolve_short_url_follows_the_redirect():
+    def opener(request, timeout):
+        assert request.get_method() == "HEAD"
+        return _Response("https://drive.google.com/drive/folders/abc")
+
+    assert resolve_short_url(
+        "https://goo.gl/jkGHi0", ("goo.gl",), opener=opener
+    ) == "https://drive.google.com/drive/folders/abc"
+
+
+def test_resolve_short_url_falls_back_to_get():
+    methods = []
+
+    def opener(request, timeout):
+        methods.append(request.get_method())
+        if request.get_method() == "HEAD":
+            raise urllib.error.URLError("HEAD refused")
+        return _Response("https://example.com/final")
+
+    assert resolve_short_url(
+        "https://bit.ly/x", ("bit.ly",), opener=opener
+    ) == "https://example.com/final"
+    assert methods == ["HEAD", "GET"]
+
+
+def test_resolve_short_url_falls_back_to_plain_get():
+    methods = []
+
+    def opener(request, timeout):
+        methods.append((request.get_method(), request.get_header("Range")))
+        if request.get_method() == "HEAD" or request.get_header("Range"):
+            raise urllib.error.URLError("refused")
+        return _Response("https://example.com/final")
+
+    assert resolve_short_url(
+        "https://bit.ly/x", ("bit.ly",), opener=opener
+    ) == "https://example.com/final"
+    assert methods == [("HEAD", None), ("GET", "bytes=0-0"), ("GET", None)]
+
+
+def test_resolve_short_url_rejects_a_non_http_target():
+    def opener(request, timeout):
+        return _Response("ftp://example.com/file")
+
+    assert resolve_short_url(
+        "https://goo.gl/x", ("goo.gl",), opener=opener
+    ) == "https://goo.gl/x"
+
+
+def test_resolve_short_url_keeps_a_final_4xx_target():
+    def opener(request, timeout):
+        raise urllib.error.HTTPError(
+            "https://drive.google.com/final", 404, "Not Found", {}, None
+        )
+
+    assert resolve_short_url(
+        "https://goo.gl/x", ("goo.gl",), opener=opener
+    ) == "https://drive.google.com/final"
+
+
+def test_resolve_short_url_returns_the_original_on_failure():
+    def opener(request, timeout):
+        raise urllib.error.URLError("offline")
+
+    assert resolve_short_url("https://goo.gl/x", ("goo.gl",), opener=opener) == (
+        "https://goo.gl/x"
+    )
+
+
+def test_resolve_short_url_ignores_unlisted_hosts():
+    def opener(request, timeout):
+        raise AssertionError("should not be called")
+
+    assert resolve_short_url(
+        "https://example.com/x", ("goo.gl",), opener=opener
+    ) == "https://example.com/x"

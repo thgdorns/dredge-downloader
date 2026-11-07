@@ -105,3 +105,17 @@ def test_lane_status_tail_reads_the_ends_of_a_big_log(tmp_path):
         encoding="utf-8",
     )
     assert lane_status_tail(log) == lane_status(log)
+
+
+def test_run_gives_child_processes_a_utf8_stdio(tmp_path, monkeypatch):
+    monkeypatch.delenv("PYTHONIOENCODING", raising=False)
+    rc, out = run(
+        [
+            sys.executable, "-c",
+            "import os; print(os.environ.get('PYTHONIOENCODING'))",
+        ],
+        cwd=tmp_path,
+    )
+
+    assert rc == 0
+    assert out.strip() == "utf-8"

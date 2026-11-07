@@ -358,6 +358,7 @@ def run_worker(
         engines,
         knowledge,
         filehosts=load_domains(paths.filehosts),
+        shorteners=load_domains(paths.shorteners),
     )
     verdict = worker.download(
         args.url,
@@ -396,6 +397,7 @@ def run_refresh(
     worker = Worker(
         paths, settings, engines, knowledge,
         filehosts=load_domains(paths.filehosts),
+        shorteners=load_domains(paths.shorteners),
     )
     lane_log = paths.logs / "refresh.log"
     result = paths.logs / "refresh.result"

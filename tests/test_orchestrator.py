@@ -711,6 +711,43 @@ def test_a_private_video_is_parked_in_skip_txt(tmp_path, monkeypatch):
     assert records.read_lines(paths.fail) == []
 
 
+class FakePendingWorker:
+    """A worker whose gallery-dl run found the post not imported yet."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        pass
+
+    def download(self, url, *, dest, flat, dest_tpl, ignore_records, lane_log,
+                 result, archive, slot, **kwargs):
+        Path(lane_log).write_text(f"[test] {url}\r\n", encoding="utf-8")
+        Path(result).write_text("PENDING|gallery-dl", encoding="utf-8")
+        return "PENDING|gallery-dl"
+
+
+def test_a_pending_post_is_parked_in_skip_txt(tmp_path, monkeypatch):
+    """A post the mirror has not imported yet is not a failure to retry."""
+    paths = Paths(tmp_path)
+    paths.ensure()
+    settings = Settings.load(
+        paths, dest_default=tmp_path / "dest", max_downloads=1,
+        no_capture=True, progress_every_seconds=0,
+    )
+    records.write_lines(paths.queue, ["https://example.com/pending"])
+    monkeypatch.setattr(orchestrator, "Worker", FakePendingWorker)
+
+    runtime = Runtime(paths, settings)
+    stats = run_pass(
+        runtime, Knowledge({}, SiteRule(host="*"), MirrorTable()),
+        orchestrator.Engines(), out=lambda line: None,
+    )
+
+    assert stats is not None
+    assert stats.parked == 1
+    assert stats.failed == 0
+    assert records.read_lines(paths.skip) == ["https://example.com/pending"]
+    assert records.read_lines(paths.fail) == []
+
+
 def test_a_terminal_gets_one_line_per_lane(tmp_path, monkeypatch):
     paths = Paths(tmp_path)
     paths.ensure()

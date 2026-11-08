@@ -524,6 +524,41 @@ def test_a_file_already_on_disk_is_a_success(tmp_path, monkeypatch):
     assert verdict == "OK|yt-dlp"
 
 
+def test_a_pending_import_is_parked_with_its_text(tmp_path, monkeypatch):
+    """The archive has the post but not its files yet: park it, keep the text.
+
+    gallery-dl answers every file URL with 404 while it warns "Incomplete/Missing
+    file import ('pending')". Retrying that is pointless until the mirror
+    imports the post, so the link goes to skip.txt - but the post text is worth
+    saving now, because it is all that exists.
+    """
+    behaviour = {"gdl": {
+        "rc": 1,
+        "text": (
+            "[pawchive][warning] 1: Incomplete/Missing file import ('pending')\n"
+            "[download][error] Failed to download 1_title_01_001.jpg"
+        ),
+        "files": [],
+        "info": {
+            "id": "1",
+            "title": "A pending post",
+            "content": "<p>coming soon</p>",
+            "published": "2026-06-10T22:00:00",
+        },
+        "info_dir": "creator/1",
+    }}
+
+    verdict, root = run(
+        tmp_path, monkeypatch, behaviour, url="https://example.com/post/1",
+        preview_description="on",
+    )
+
+    assert verdict == "PENDING|gallery-dl"
+    description = root / "dest" / "creator" / "1" / "1_A pending post.description"
+    assert description.exists()
+    assert "coming soon" in description.read_text(encoding="utf-8")
+
+
 def test_a_private_video_is_parked_not_failed(tmp_path, monkeypatch):
     """yt-dlp names the condition, and no retry can change it: skip.txt, not fail.txt."""
     text = "ERROR: [iwara] abc: Private video. Login if you have permissions to watch."
@@ -543,7 +578,7 @@ def test_a_maintenance_page_is_failed_not_offline(tmp_path, monkeypatch):
     assert verdict == "FAILED"
 
 
-def test_a_pending_file_import_is_failed_not_offline(tmp_path, monkeypatch):
+def test_a_pending_file_import_is_parked(tmp_path, monkeypatch):
     """The post is alive; the mirror has not imported its file yet."""
     text = (
         "[pawchive][warning] 121114557: Incomplete/Missing file import ('pending')\n"
@@ -555,7 +590,7 @@ def test_a_pending_file_import_is_failed_not_offline(tmp_path, monkeypatch):
         "gdl": {"rc": 4, "text": text},
         "yt": {"rc": 1, "text": text},
     })
-    assert verdict == "FAILED"
+    assert verdict == "PENDING|gallery-dl"
 
 
 def test_a_cloudflare_challenge_is_failed_not_offline(tmp_path, monkeypatch):

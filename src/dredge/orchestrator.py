@@ -597,10 +597,11 @@ def run_pass(
                         records.append_lines(paths.offline, [record_line])
                     stats.offline += 1
                     _mark_failed(runtime, knowledge, lane.url)
-                elif verdict.startswith(("PREVIEW|", "PRIVATE|")):
-                    # Nothing will ever fetch these: the archive kept only
-                    # thumbnails (PREVIEW), or the video is private and this
-                    # account may not watch it (PRIVATE). Park them in skip.txt:
+                elif verdict.startswith(("PREVIEW|", "PRIVATE|", "PENDING|")):
+                    # Nothing can be fetched now: the archive kept only
+                    # thumbnails (PREVIEW), the video is private (PRIVATE), or
+                    # the archive has not imported the files yet (PENDING - the
+                    # post text is saved with the link). Park them in skip.txt:
                     # fail.txt is for errors a retry can still fix.
                     if not records_frozen:
                         records.append_lines(paths.skip, [record_line])

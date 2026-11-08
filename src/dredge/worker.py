@@ -47,6 +47,9 @@ _PREVIEW_LINE = re.compile(r"\('preview only'\)")
 # yt-dlp's own wording when the account may not watch a video ("Private video.
 # Login if you have permissions to watch."). Retrying cannot change it.
 _PRIVATE_LINE = re.compile(r"(?i)\bprivate video\b")
+# The kemono family's warning for a post it knows but has not imported yet:
+# every file URL answers 404 until the mirror does the import.
+_PENDING_LINE = re.compile(r"(?i)incomplete/missing file import")
 
 # Conditions an engine retries forever instead of failing. megatools sleeps for
 # minutes per chunk on a MEGA "509 over quota", so the lane would stay busy
@@ -133,6 +136,7 @@ class GalleryResult:
     handled: bool = False
     auth: str = ""
     preview: bool = False
+    pending: bool = False
 
 
 def _now() -> str:
@@ -459,6 +463,8 @@ class Worker:
                 return self._finish(f"AUTH|{gallery.auth}", result)
             if gallery.preview:
                 return self._finish("PREVIEW|gallery-dl", result)
+            if gallery.pending:
+                return self._finish("PENDING|gallery-dl", result)
 
         # --- tier 1f: file-host engines ---------------------------------
         if not engine and not dry and pin_filehost:
@@ -734,9 +740,22 @@ class Worker:
         if dl_rule and dl_rule.engine == "gdl":
             result.handled = True
 
-        if (
+        if _PENDING_LINE.search(out) and not existing and not playlist:
+            # "Incomplete/Missing file import ('pending')": the archive knows the
+            # post's files but has not imported them, so every URL it lists
+            # answers 404. Nothing can be fetched now, and the post text is the
+            # only thing worth keeping, so the link is parked like a preview.
+            self._lane(
+                "[gallery-dl] the archive has not imported this post yet - "
+                "parking the link"
+            )
+            if self._save_parked_text():
+                self._save_description(final_dest, dl, args)
+            result.pending = True
+            result.handled = True
+        elif (
             exit_ok and not gdl_err and not playlist
-            and _PREVIEW_LINE.search(out) and not made and not existing
+            and _PREVIEW_LINE.search(out) and not existing
         ):
             # The archive knows the post's files but kept only thumbnails:
             # gallery-dl will not save a thumbnail under the real filename, and
@@ -746,13 +765,17 @@ class Worker:
             self._lane(
                 "[gallery-dl] the archive has previews only - parking the link"
             )
-            if self.settings.preview_description.strip().lower() not in (
-                "off", "no", "false", "0", "",
-            ):
+            if self._save_parked_text():
                 self._save_description(final_dest, dl, args)
             result.preview = True
             result.handled = True
         return result
+
+    def _save_parked_text(self) -> bool:
+        """Whether a parked post (preview-only or pending) keeps its text."""
+        return self.settings.preview_description.strip().lower() not in (
+            "off", "no", "false", "0", "",
+        )
 
     def _save_description(self, dest: Path, url: str, args: list[str]) -> None:
         """Save the post text where gallery-dl would have put the media.
@@ -764,13 +787,12 @@ class Worker:
         """
         if self.settings.dry_run:
             return
-        rc, _ = self._engine_run(
+        self._engine_run(
             [self.engines.gdl, "--write-info-json", *args],
             cwd=self.paths.root, sink=self._sink,
         )
-        if rc != 0:
-            self._lane("[gallery-dl] the post text could not be fetched")
-            return
+        # No exit-code check: a pending import fails the same 404s again but
+        # still writes info.json, which is the only thing wanted here.
         info = self._find_info(dest, _post_id(url))
         if info is None:
             self._lane("[gallery-dl] no info.json was written - no post text to keep")

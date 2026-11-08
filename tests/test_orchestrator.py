@@ -515,6 +515,7 @@ def test_capture_counts_added_and_rejected(tmp_path):
 
     assert added == ["https://example.com/new"]
     assert rejected == {
+        "still in the queue": 1,
         "already downloaded": 1,
         "in skip.txt": 1,
         "failed before": 1,
@@ -522,29 +523,27 @@ def test_capture_counts_added_and_rejected(tmp_path):
     }
 
 
-def test_a_link_already_waiting_is_not_reported_as_rejected(tmp_path):
-    """A second copy of a queued link must not look like Dredge refusing it.
+def test_a_link_already_waiting_is_reported_as_such(tmp_path):
+    """Silence and "already queued" look the same to whoever copied the link.
 
-    The clipboard can deliver one copy twice (different text flavours), and the
-    URL may simply still be waiting; either way the first copy already queued
-    it, so the only honest thing to say is nothing.
+    The same copy can arrive twice, and a link can be pasted while it waits;
+    either way the answer is "it is still in the queue", not nothing.
     """
     paths = Paths(tmp_path)
     settings = Settings.load(paths, dest_default=tmp_path / "dest")
     runtime = Runtime(paths, settings)
     knowledge = Knowledge({}, SiteRule(host="*"), MirrorTable())
-    queued = {"example.com/waiting"}
 
     added, rejected = _capture(
         ["https://example.com/waiting", "https://example.com/waiting"],
-        queued,
+        set(),
         runtime,
         knowledge,
         settings,
     )
 
-    assert added == []
-    assert rejected == {}
+    assert added == ["https://example.com/waiting"]
+    assert rejected == {"still in the queue": 1}
 
 
 def test_a_finished_link_is_no_longer_queued(tmp_path):
@@ -1066,7 +1065,7 @@ def test_clipboard_inbox_is_drained_into_the_queue(tmp_path):
         "https://example.com/b\tSome Author",
     ])
 
-    added = orchestrator.drain_clipboard(paths, settings)
+    added, _already = orchestrator.drain_clipboard(paths, settings)
 
     assert added == [
         "https://example.com/a",
@@ -1093,7 +1092,7 @@ def test_clipboard_drain_keeps_the_pause_and_loses_no_duplicates(tmp_path):
         "https://example.com/b",
     ])
 
-    added = orchestrator.drain_clipboard(paths, settings)
+    added, _already = orchestrator.drain_clipboard(paths, settings)
 
     assert added == ["https://example.com/a", "https://example.com/b"]
     assert records.read_lines(paths.queue) == added
@@ -1107,7 +1106,7 @@ def test_clipboard_drain_is_skipped_when_capture_is_off(tmp_path):
     )
     records.write_lines(paths.clip_inbox, ["https://example.com/a"])
 
-    assert orchestrator.drain_clipboard(paths, settings) == []
+    assert orchestrator.drain_clipboard(paths, settings) == ([], 0)
     assert records.read_lines(paths.queue) == []
     assert paths.clip_inbox.exists()
 
@@ -1151,7 +1150,7 @@ def test_the_clipboard_waits_in_the_inbox_while_paused(tmp_path, monkeypatch):
 
     assert records.read_lines(paths.queue) == []
     # resuming is what moves it: the inbox is drained by the next pass
-    assert orchestrator.drain_clipboard(paths, settings) == ["https://example.com/a"]
+    assert orchestrator.drain_clipboard(paths, settings)[0] == ["https://example.com/a"]
     assert records.read_lines(paths.queue) == ["https://example.com/a"]
 
 

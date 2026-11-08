@@ -128,27 +128,29 @@ def _fallback(
     return refreshed
 
 
-def drain_clipboard(paths: Paths, settings: Settings) -> list[str]:
+def drain_clipboard(paths: Paths, settings: Settings) -> tuple[list[str], int]:
     """Move clipboard URLs from ``clip-inbox.txt`` into ``queue.txt``.
 
     The Capture thread only writes the inbox. Draining it is separate from
     downloading, so the paused loop can keep queue.txt current without starting
-    a pass. Returns the lines added.
+    a pass. Returns ``(lines added, lines already in the queue)`` - the second
+    number is what makes "I copied it and nothing happened" answerable.
     """
     if settings.dry_run or settings.no_capture:
-        return []
+        return [], 0
     captured = state.read_clip_inbox(paths.clip_inbox)
     if not captured:
-        return []
+        return [], 0
     # One copy can update the clipboard more than once (different text flavours
     # hash differently), so the same URL can arrive twice; keep one copy of each
     # and skip whatever the queue already holds. Draining never touches the
     # paused flag: a pause holds the queue, it does not stop it growing.
     known = set(records.read_lines(paths.queue))
-    fresh = [line for line in dict.fromkeys(captured) if line not in known]
+    lines = list(dict.fromkeys(captured))
+    fresh = [line for line in lines if line not in known]
     if fresh:
         records.append_lines(paths.queue, fresh)
-    return fresh
+    return fresh, len(lines) - len(fresh)
 
 
 def run_pass(
@@ -167,10 +169,17 @@ def run_pass(
 
     urls = read_queue(paths.queue)
 
-    captured = drain_clipboard(paths, settings)
+    captured, already_queued = drain_clipboard(paths, settings)
     if captured:
-        out(_line(stamp, f"clipboard: +{len(captured)} URL(s) queued.", "cyan"))
+        detail = f": {split_line(captured[0])[0]}" if len(captured) == 1 else ""
+        out(_line(stamp, f"clipboard: +{len(captured)} URL(s) queued{detail}.", "cyan"))
         urls += captured
+    if already_queued:
+        out(_line(
+            stamp,
+            f"clipboard: {already_queued} URL(s) were already in queue.txt.",
+            "yellow",
+        ))
 
     if not settings.dry_run and paths.staged_queue.exists():
         staged = read_queue(paths.staged_queue)
@@ -478,24 +487,37 @@ def run_pass(
                                 remaining.append(url)
                                 ordered.append(url)
                                 pending.append(len(ordered) - 1)
+                        detail = ""
+                        if len(added) == 1:
+                            detail = f": {split_line(added[0])[0]}"
                         out(_line(
                             stamp,
-                            f"clipboard: +{len(added)} URL(s) queued.",
+                            f"clipboard: +{len(added)} URL(s) queued{detail}.",
                             "cyan",
                         ))
+                        _log_line(
+                            stats.log,
+                            f"[{stamp()}] clipboard: +{len(added)} URL(s) queued{detail}.",
+                        )
                     if rejected:
                         total = sum(rejected.values())
                         parts = ", ".join(
                             f"{count} {reason}" for reason, count in rejected.items()
                         )
+                        # Name the link when the batch was a single copy, so the
+                        # line answers "what did it do with the URL I copied?".
+                        detail = ""
+                        if len(captured) == 1:
+                            detail = f": {split_line(captured[0])[0]}"
                         out(_line(
                             stamp,
-                            f"clipboard: {total} URL(s) skipped ({parts}).",
-                            "darkgray",
+                            f"clipboard: {total} URL(s) skipped ({parts}){detail}.",
+                            "yellow",
                         ))
                         _log_line(
                             stats.log,
-                            f"[{stamp()}] clipboard: {total} URL(s) skipped ({parts}).",
+                            f"[{stamp()}] clipboard: {total} URL(s) skipped "
+                            f"({parts}){detail}.",
                         )
 
             finished = [slot for slot, lane in active.items() if not lane.thread.is_alive()]
@@ -990,11 +1012,10 @@ def _capture(
             reject("not a URL")
             continue
         if url in queued or any(key in queued for key in keys):
-            # Already scheduled: the same copy can reach the clipboard twice
-            # (different text flavours), and a link can be pasted again while it
-            # waits. Nothing is lost and nothing can be done, so this is not a
-            # rejection - reporting it as "already queued" made every copy look
-            # as if Dredge had refused the link.
+            # Still scheduled - the same copy can arrive twice (different text
+            # flavours) or the link may simply be waiting. Say so: "nothing
+            # happened" is indistinguishable from "Dredge ignored my copy".
+            reject("still in the queue")
             continue
         ident = knowledge.seen_id(keys[0])
         if runtime.archive_check and (

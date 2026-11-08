@@ -1008,6 +1008,14 @@ class Worker:
                 # The quota is per IP, so this answer applies to every link on
                 # the host, not just this one: the pass parks the rest.
                 self._quota_host = host(dl)
+            if name == "megadl" and re.search(r"(?i)server returned error ENOENT", out):
+                # ENOENT from MEGA's 'g' call means the node is not there at
+                # all: deleted, or the link is wrong. No retry can fix it.
+                self._gone = True
+                self._lane(
+                    "[megadl] MEGA answers ENOENT - the file no longer exists "
+                    "(deleted, or a broken link), not a quota problem"
+                )
             if re.search(r"(?i)too many users have viewed|download quota|quota exceeded"
                 r"|cannot retrieve the public link|many accesses",
                 out,

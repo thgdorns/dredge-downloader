@@ -176,6 +176,33 @@ def test_a_missing_token_without_an_oauth_rule_is_a_plain_failure(
     assert verdict == "FAILED"
 
 
+def test_a_deleted_mega_file_is_offline_not_failed(tmp_path, monkeypatch):
+    """ENOENT from MEGA's 'g' call means the node is gone, not throttled."""
+    rule = parse_rule('mega.nz engine=megadl')
+    paths = Paths(tmp_path)
+    settings = Settings.load(paths, dest_default=tmp_path / 'dest', dry_run=False)
+
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None, stall=None):
+        return 1, (
+            "ERROR: Download failed for 'https://mega.nz/file/78sCWSjC#x': API "
+            "call 'g' failed: Server returned error ENOENT"
+        )
+
+    monkeypatch.setattr(worker_module, 'run', fake)
+    worker = Worker(paths, settings, Engines(megadl='megatools'), knowledge(rule))
+    verdict = worker.download(
+        'https://mega.nz/file/78sCWSjC#x',
+        dest=tmp_path / 'dest',
+        lane_log=tmp_path / 'lane1.log',
+        result=tmp_path / 'lane1.result',
+        archive=tmp_path / 'lane1.archive',
+    )
+
+    assert verdict == 'OFFLINE'
+    log = (tmp_path / 'lane1.log').read_text(encoding='utf-8')
+    assert 'ENOENT' in log
+
+
 def test_a_blocked_mega_ip_fails_fast_and_says_so(tmp_path, monkeypatch):
     """EBLOCKED makes megatools sleep for minutes; the lane must stop instead."""
     import re

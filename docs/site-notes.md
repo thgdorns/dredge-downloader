@@ -110,6 +110,13 @@ engines see it).
 - **Transfer quota is per IP and resets**: megatools sleeps for minutes per
   chunk after a 509, which would hold a lane. The worker stops the process and
   records `FAILED`, so a later run retries.
+- **ENOENT is a dead link, not a quota problem.** MEGA's `g` call answers
+  `Server returned error ENOENT` when the node was deleted or the link is
+  broken; no retry can fix it, so the worker answers `OFFLINE` (offline.txt).
+  `megadl` words it as a download failure, which is why it used to sit in
+  fail.txt forever. A public sample can be checked without megatools:
+  `POST https://g.api.mega.co.nz/cs?id=0` with `[{"a":"g","p":"<handle>"}]`
+  gives `[-9]` for a deleted node and a file object for a live one.
 - **One quota answer parks the whole host in that pass.** The quota belongs to
   the IP, so the remaining MEGA links cannot succeed either; the pass records
   the failing link, then skips the host until `quota_block_minutes` (default

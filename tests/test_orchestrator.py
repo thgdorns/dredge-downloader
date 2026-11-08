@@ -523,6 +523,29 @@ def test_capture_counts_added_and_rejected(tmp_path):
     }
 
 
+def test_a_copied_link_is_named_in_the_console(tmp_path, monkeypatch):
+    """One copy, one line, with the URL: no invisible silence."""
+    paths = Paths(tmp_path)
+    paths.ensure()
+    settings = Settings.load(
+        paths, dest_default=tmp_path / "dest", max_downloads=1,
+        progress_every_seconds=0,
+    )
+    records.write_lines(paths.clip_inbox, ["https://example.com/new"])
+    monkeypatch.setattr(orchestrator, "Worker", FakeWorker)
+    messages: list[str] = []
+
+    run_pass(
+        Runtime(paths, settings), Knowledge({}, SiteRule(host="*"), MirrorTable()),
+        orchestrator.Engines(), out=messages.append,
+    )
+
+    assert any(
+        "clipboard: +1 URL(s) queued: https://example.com/new." in line
+        for line in messages
+    )
+
+
 def test_a_link_already_waiting_is_reported_as_such(tmp_path):
     """Silence and "already queued" look the same to whoever copied the link.
 

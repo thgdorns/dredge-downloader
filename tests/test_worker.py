@@ -212,10 +212,15 @@ def test_a_blocked_mega_ip_fails_fast_and_says_so(tmp_path, monkeypatch):
 def test_a_folderview_link_is_given_to_gdown_as_a_folder(tmp_path, monkeypatch):
     """gdown reads the last path segment as the id: "folderview" is not one.
 
-    It also only treats a URL as a folder when told to, so a /drive/u/0/folders
-    link with ?resourcekey= was downloaded as if it were a file (the page).
+    The sites.txt rewrite turns the legacy shape into /drive/folders/<id> (for
+    the engine and for the archive key), and --folder tells gdown to treat it as
+    a folder - without it a /drive/u/0/folders link is downloaded as a file.
     """
-    rule = parse_rule("drive.google.com engine=gdown")
+    rule = parse_rule(
+        r"drive.google.com engine=gdown "
+        r"rewrite=^https?://drive\.google\.com/folderview\?id=([A-Za-z0-9_-]+).*$"
+        r"=>https://drive.google.com/drive/folders/\1"
+    )
     paths = Paths(tmp_path)
     settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
     calls: list[list[str]] = []

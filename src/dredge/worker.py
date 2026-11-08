@@ -80,21 +80,6 @@ def drive_folder_name(folder_id: str, timeout: float = 15.0) -> str:
     return name[:120]
 
 
-def drive_engine_url(url: str) -> str:
-    """The shape gdown parses for a folder.
-
-    gdown takes the last path segment as the id, so ``folderview?id=<id>`` is
-    read as the folder called "folderview" and answered with 404. The
-    ``/drive/folders/<id>`` shape works, and gdown keeps the ``resourcekey``
-    query as long as the path is right (``--folder`` is passed for it).
-    """
-    if "folderview" in url:
-        match = re.search(r"[?&]id=([A-Za-z0-9_-]+)", url)
-        if match:
-            return f"https://drive.google.com/drive/folders/{match.group(1)}"
-    return url
-
-
 def drive_file_gone(url: str, timeout: float = 15.0) -> bool:
     """True when Drive's download endpoint answers 404 for this file.
 
@@ -974,7 +959,6 @@ class Worker:
             # Drive is used for public folders. Asking as the logged-in account
             # turns "public but not shared with me" into an empty listing, so
             # anonymous is the default and the jar is only a fallback.
-            dl = drive_engine_url(dl)
             args = self._gdown_args(exe, dl, dest, cookies=False)
         else:
             args = [exe, "-o", str(dest), "-m", "4", "-t", "2", dl]

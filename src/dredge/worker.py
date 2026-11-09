@@ -1012,15 +1012,25 @@ class Worker:
                 )
             except OSError:
                 pass
-        if name == "megadl" and re.search(r"(?i)invalid mega download link", out):
-            # megatools refuses the URL before it ever talks to MEGA: a folder
-            # link needs its "#<key>", so nothing can be known about the folder -
-            # not even whether it still exists. Park it and say why.
-            self._invalid = True
-            self._lane(
-                "[megadl] the link is incomplete (a MEGA folder link needs its "
-                "#key) - parked; paste the full link and retry skipped"
-            )
+        if name == "megadl":
+            if re.search(r"(?i)invalid mega download link", out):
+                # megatools refuses the URL before it ever talks to MEGA: a
+                # folder link needs its "#<key>", so nothing can be known about
+                # the folder - not even whether it still exists. Park it.
+                self._invalid = True
+                self._lane(
+                    "[megadl] the link is incomplete (a MEGA folder link needs "
+                    "its #key) - parked; paste the full link and retry skipped"
+                )
+            elif re.search(r"(?i)malformed attributes", out):
+                # The folder answered, but its attributes do not decrypt: the
+                # key is wrong (a 22-character key from another link does this).
+                # Retrying with the same link cannot help either.
+                self._invalid = True
+                self._lane(
+                    "[megadl] the #key does not decrypt this folder - wrong key, "
+                    "not a dead link; parked, retry skipped with the right link"
+                )
         if rc == 0 and moved:
             return name
         if rc == 0:

@@ -28,6 +28,45 @@ def test_text_after_the_url_without_a_tab_is_ignored():
     ]
 
 
+def test_a_copy_that_arrives_twice_is_one_event(monkeypatch):
+    """The same copy carries two flavours; only one should reach the queue.
+
+    The plain-text and rich-text flavour of one copy differ by padding, so the
+    text hash differs and the URL is delivered twice - which looked like "queued,
+    then already in the queue".
+    """
+    seq = iter([1, 2, 3])
+    texts = iter(["https://example.com/a", "https://example.com/a\n"])
+    monkeypatch.setattr(clipboard, "_sequence_number", lambda: next(seq))
+    monkeypatch.setattr(clipboard, "_paste", lambda: next(texts))
+    watcher = clipboard.ClipboardWatcher()
+
+    assert watcher.poll() == ["https://example.com/a"]
+    assert watcher.poll() == []
+
+
+def test_a_different_url_is_not_swallowed_by_the_window(monkeypatch):
+    seq = iter([1, 2])
+    texts = iter(["https://example.com/a", "https://example.com/b"])
+    monkeypatch.setattr(clipboard, "_sequence_number", lambda: next(seq))
+    monkeypatch.setattr(clipboard, "_paste", lambda: next(texts))
+    watcher = clipboard.ClipboardWatcher()
+
+    assert watcher.poll() == ["https://example.com/a"]
+    assert watcher.poll() == ["https://example.com/b"]
+
+
+def test_the_window_expires(monkeypatch):
+    seq = iter([1, 2])
+    texts = iter(["https://example.com/a", "https://example.com/a\n"])
+    monkeypatch.setattr(clipboard, "_sequence_number", lambda: next(seq))
+    monkeypatch.setattr(clipboard, "_paste", lambda: next(texts))
+    watcher = clipboard.ClipboardWatcher(dedupe_seconds=0)
+
+    assert watcher.poll() == ["https://example.com/a"]
+    assert watcher.poll() == ["https://example.com/a"]
+
+
 def test_capture_appends_polled_urls_to_the_inbox(tmp_path, monkeypatch):
     class FakeWatcher:
         def __init__(self, interval: float = 0.25) -> None:

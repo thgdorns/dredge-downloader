@@ -18,7 +18,7 @@ import sys
 import threading
 import time
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 URL_RE = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
@@ -81,8 +81,14 @@ def _paste() -> str:
 @dataclass
 class ClipboardWatcher:
     interval: float = 0.25
+    # One copy can reach the clipboard more than once: the plain-text and the
+    # rich-text flavour carry the same URL with different padding, so the text
+    # hash differs and the URL arrives twice. Within this window a URL is the
+    # same copy, not a second one.
+    dedupe_seconds: float = 5.0
     _last_seq: int | None = None
     _last_hash: str = ""
+    _recent: dict[str, float] = field(default_factory=dict)
 
     def poll(self) -> list[str]:
         """URLs copied since the previous poll (empty when nothing changed)."""
@@ -96,7 +102,21 @@ class ClipboardWatcher:
         if digest == self._last_hash:
             return []
         self._last_hash = digest
-        return extract_urls(text)
+        now = time.monotonic()
+        fresh: list[str] = []
+        for item in extract_urls(text):
+            url = item.split("\t", 1)[0]
+            seen = self._recent.get(url)
+            if seen is not None and now - seen < self.dedupe_seconds:
+                continue
+            self._recent[url] = now
+            fresh.append(item)
+        if len(self._recent) > 64:
+            self._recent = {
+                url: at for url, at in self._recent.items()
+                if now - at < self.dedupe_seconds
+            }
+        return fresh
 
     def watch(self) -> Iterator[str]:
         while True:

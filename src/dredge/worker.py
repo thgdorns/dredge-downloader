@@ -283,6 +283,7 @@ class Worker:
         self._drive_names: dict[str, str] = {}
         self._quota_host = ""
         self._gone = False
+        self._invalid = False
         self._extractor = ""
 
     # -- logging ---------------------------------------------------------
@@ -352,6 +353,7 @@ class Worker:
             self._lane(f"[redirect] {url} -> {resolved}")
         self._quota_host = ""      # set when the engine says the IP is out of quota
         self._gone = False         # set when a probe proves the file is deleted
+        self._invalid = False      # set when the link itself cannot be parsed
 
         if dest is None:
             target = destination_for(resolved, self.knowledge, self.settings)
@@ -616,6 +618,10 @@ class Worker:
             # watch." - the account cannot see it, and a retry will not change
             # that, so the pass parks it instead of adding it to fail.txt.
             verdict = "PRIVATE|yt-dlp"
+        elif self._invalid:
+            # The link itself is unusable (a MEGA folder without its #key), so
+            # there is nothing to retry; the pass parks it in skip.txt.
+            verdict = "INVALID|megadl"
         elif self._gone or OFFLINE_RE.search(self.text):
             verdict = "OFFLINE"
         else:
@@ -1006,10 +1012,20 @@ class Worker:
                 )
             except OSError:
                 pass
+        if name == "megadl" and re.search(r"(?i)invalid mega download link", out):
+            # megatools refuses the URL before it ever talks to MEGA: a folder
+            # link needs its "#<key>", so nothing can be known about the folder -
+            # not even whether it still exists. Park it and say why.
+            self._invalid = True
+            self._lane(
+                "[megadl] the link is incomplete (a MEGA folder link needs its "
+                "#key) - parked; paste the full link and retry skipped"
+            )
         if rc == 0 and moved:
             return name
         if rc == 0:
-            self._lane(f"[{name}] exit 0 but nothing new on disk - counting as failed")
+            if not self._invalid:
+                self._lane(f"[{name}] exit 0 but nothing new on disk - counting as failed")
         else:
             self._lane(f"[{name}] exit {rc}")
             if moved:

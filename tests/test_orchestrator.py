@@ -770,6 +770,42 @@ def test_a_pending_post_is_parked_in_skip_txt(tmp_path, monkeypatch):
     assert records.read_lines(paths.fail) == []
 
 
+class FakeInvalidWorker:
+    """A worker whose MEGA link is incomplete (no #key)."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        pass
+
+    def download(self, url, *, dest, flat, dest_tpl, ignore_records, lane_log,
+                 result, archive, slot, **kwargs):
+        Path(lane_log).write_text(f"[test] {url}\r\n", encoding="utf-8")
+        Path(result).write_text("INVALID|megadl", encoding="utf-8")
+        return "INVALID|megadl"
+
+
+def test_an_invalid_link_is_parked_in_skip_txt(tmp_path, monkeypatch):
+    """A link that cannot be parsed is parked, not left in fail.txt forever."""
+    paths = Paths(tmp_path)
+    paths.ensure()
+    settings = Settings.load(
+        paths, dest_default=tmp_path / "dest", max_downloads=1,
+        no_capture=True, progress_every_seconds=0,
+    )
+    records.write_lines(paths.queue, ["https://mega.nz/folder/P90Hya7a"])
+    monkeypatch.setattr(orchestrator, "Worker", FakeInvalidWorker)
+
+    stats = run_pass(
+        Runtime(paths, settings), Knowledge({}, SiteRule(host="*"), MirrorTable()),
+        orchestrator.Engines(), out=lambda line: None,
+    )
+
+    assert stats is not None
+    assert stats.parked == 1
+    assert stats.failed == 0
+    assert records.read_lines(paths.skip) == ["https://mega.nz/folder/P90Hya7a"]
+    assert records.read_lines(paths.fail) == []
+
+
 def test_a_terminal_gets_one_line_per_lane(tmp_path, monkeypatch):
     paths = Paths(tmp_path)
     paths.ensure()

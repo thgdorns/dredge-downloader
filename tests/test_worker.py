@@ -176,6 +176,38 @@ def test_a_missing_token_without_an_oauth_rule_is_a_plain_failure(
     assert verdict == "FAILED"
 
 
+def test_an_incomplete_mega_folder_link_is_parked(tmp_path, monkeypatch):
+    """megatools refuses a folder link with no #key before asking MEGA anything.
+
+    Nothing can be said about the folder then - not even whether it exists - so
+    the link is parked (skip.txt), not failed: the same folder with its key is
+    the same archive key and stays fetchable.
+    """
+    rule = parse_rule('mega.nz engine=megadl')
+    paths = Paths(tmp_path)
+    settings = Settings.load(paths, dest_default=tmp_path / 'dest', dry_run=False)
+
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None, stall=None):
+        return 0, (
+            "WARNING: Skipping invalid Mega download link: "
+            "https://mega.nz/folder/P90Hya7a"
+        )
+
+    monkeypatch.setattr(worker_module, 'run', fake)
+    worker = Worker(paths, settings, Engines(megadl='megatools'), knowledge(rule))
+    verdict = worker.download(
+        'https://mega.nz/folder/P90Hya7a',
+        dest=tmp_path / 'dest',
+        lane_log=tmp_path / 'lane1.log',
+        result=tmp_path / 'lane1.result',
+        archive=tmp_path / 'lane1.archive',
+    )
+
+    assert verdict == 'INVALID|megadl'
+    log = (tmp_path / 'lane1.log').read_text(encoding='utf-8')
+    assert '#key' in log
+
+
 def test_a_deleted_mega_file_is_offline_not_failed(tmp_path, monkeypatch):
     """ENOENT from MEGA's 'g' call means the node is gone, not throttled."""
     rule = parse_rule('mega.nz engine=megadl')

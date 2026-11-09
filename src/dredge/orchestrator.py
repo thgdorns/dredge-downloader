@@ -170,10 +170,15 @@ def run_pass(
     urls = read_queue(paths.queue)
 
     captured, already_queued = drain_clipboard(paths, settings)
+    clip_recent: dict[str, float] = {}
     if captured:
         detail = f": {split_line(captured[0])[0]}" if len(captured) == 1 else ""
         out(_line(stamp, f"clipboard: +{len(captured)} URL(s) queued{detail}.", "cyan"))
         urls += captured
+        now = time.monotonic()
+        for line in captured:
+            for key in knowledge.keys(split_line(line)[0]):
+                clip_recent[key] = now
     if already_queued:
         out(_line(
             stamp,
@@ -478,7 +483,8 @@ def run_pass(
                 captured = state.read_clip_inbox(paths.clip_inbox)
                 if captured:
                     added, rejected = _capture(
-                        captured, queued_canon, runtime, knowledge, settings
+                        captured, queued_canon, runtime, knowledge, settings,
+                        clip_recent,
                     )
                     if added:
                         records.append_lines(paths.queue, added)
@@ -995,10 +1001,22 @@ def _capture(
     runtime: Runtime,
     knowledge: Knowledge,
     settings,
+    recent: dict[str, float] | None = None,
 ) -> tuple[list[str], dict[str, int]]:
-    """Queue new clipboard URLs; also count why the others were left out."""
+    """Queue new clipboard URLs; also count why the others were left out.
+
+    ``recent`` holds the keys the clipboard queued lately (key -> monotonic
+    time). One copy reaches the clipboard more than once - the plain-text and
+    rich-text flavours carry the same URL with different padding - so a repeat
+    that lands after the first was queued is the same copy, not a second link,
+    and is dropped without a word. A link that was already waiting from before
+    is still reported: that is a real answer to "what happened to my copy?".
+    """
     added: list[str] = []
     rejected: dict[str, int] = {}
+    now = time.monotonic()
+    recent = {} if recent is None else recent
+    batch: set[str] = set()
 
     def reject(reason: str) -> None:
         rejected[reason] = rejected.get(reason, 0) + 1
@@ -1012,10 +1030,12 @@ def _capture(
         if not keys:
             reject("not a URL")
             continue
+        if any(key in batch for key in keys):
+            continue            # the same copy delivered twice in one drain
+        batch.update(keys)
         if url in queued or any(key in queued for key in keys):
-            # Still scheduled - the same copy can arrive twice (different text
-            # flavours) or the link may simply be waiting. Say so: "nothing
-            # happened" is indistinguishable from "Dredge ignored my copy".
+            if any(now - recent[key] < 10.0 for key in keys if key in recent):
+                continue        # queued by this very copy a moment ago
             reject("still in the queue")
             continue
         ident = knowledge.seen_id(keys[0])
@@ -1041,6 +1061,8 @@ def _capture(
             reject("failed before")
             continue
         queued.update(keys)
+        for key in keys:
+            recent[key] = now
         added.append(line)
     return added, rejected
 

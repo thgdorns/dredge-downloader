@@ -546,12 +546,8 @@ def test_a_copied_link_is_named_in_the_console(tmp_path, monkeypatch):
     )
 
 
-def test_a_link_already_waiting_is_reported_as_such(tmp_path):
-    """Silence and "already queued" look the same to whoever copied the link.
-
-    The same copy can arrive twice, and a link can be pasted while it waits;
-    either way the answer is "it is still in the queue", not nothing.
-    """
+def test_one_copy_delivered_twice_is_one_queue_line(tmp_path):
+    """Two flavours of one copy must not look like two links."""
     paths = Paths(tmp_path)
     settings = Settings.load(paths, dest_default=tmp_path / "dest")
     runtime = Runtime(paths, settings)
@@ -566,6 +562,42 @@ def test_a_link_already_waiting_is_reported_as_such(tmp_path):
     )
 
     assert added == ["https://example.com/waiting"]
+    assert rejected == {}
+
+
+def test_a_second_flavour_a_moment_later_is_silent(tmp_path):
+    """The other flavour can land in the next drain: same copy, no message."""
+    paths = Paths(tmp_path)
+    settings = Settings.load(paths, dest_default=tmp_path / "dest")
+    runtime = Runtime(paths, settings)
+    knowledge = Knowledge({}, SiteRule(host="*"), MirrorTable())
+    recent = {"example.com/a": time.monotonic()}
+
+    added, rejected = _capture(
+        ["https://example.com/a"], {"example.com/a"}, runtime, knowledge,
+        settings, recent,
+    )
+
+    assert added == []
+    assert rejected == {}
+
+
+def test_a_link_queued_before_is_reported_as_such(tmp_path):
+    """A link that was already waiting is a real answer, not a same-copy repeat."""
+    paths = Paths(tmp_path)
+    settings = Settings.load(paths, dest_default=tmp_path / "dest")
+    runtime = Runtime(paths, settings)
+    knowledge = Knowledge({}, SiteRule(host="*"), MirrorTable())
+
+    added, rejected = _capture(
+        ["https://example.com/waiting"],
+        {"example.com/waiting"},
+        runtime,
+        knowledge,
+        settings,
+    )
+
+    assert added == []
     assert rejected == {"still in the queue": 1}
 
 

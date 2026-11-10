@@ -39,6 +39,12 @@
 #                asks for a code) and retries the link. gallery-dl caches it.
 #   rewrite=REGEX=>URL  rewrite the URL before the engines see it (path/alias fix)
 #   cookiedrop=NAMES  cookies a site must never receive (wildcards allowed)
+#   description  keep the post text as one <id>_<title>.description beside the
+#                files: gallery-dl is asked for --write-info-json (one file per
+#                post) and Dredge converts it, so no .json per file. Skipped for
+#                creator pages. Pair with
+#                gdl=extractor.<site>.postprocessors=null on the command line to
+#                turn the per-file metadata postprocessor off.
 #
 # The global line (host "*") holds rules for every site:
 #   strip=       query arguments that never identify an item

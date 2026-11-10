@@ -32,6 +32,7 @@ class SiteRule:
     id: str = ""
     also: tuple[str, ...] = ()
     serial: bool = False
+    lanes: int = 0                # cap when serial: 1 unless "serial=N" says more
     native: bool = False
     probe: tuple[str, ...] = ()
     gdl: tuple[str, ...] = ()
@@ -51,6 +52,7 @@ class SiteRule:
     page: str = ""                # a link without a page means this one ("1")
     rewrite: str = ""             # REGEX=>URL applied to the URL before the engines
     cookiedrop: tuple[str, ...] = ()
+    description: bool = False     # keep one <id>_<title>.description per post
     strip: str = ""
     dlstrip: str = ""
     keepfrag: str = ""
@@ -92,6 +94,18 @@ def parse_rule(line: str) -> SiteRule | None:
     for token in parts[1:]:
         if token == "serial":
             rule.serial = True
+            continue
+        if token.startswith("serial="):
+            # A host that tolerates a few parallel connections but not a flood:
+            # same cap for every lane, just a higher one than plain "serial".
+            rule.serial = True
+            rule.lanes = max(1, _size_or_int(token.partition("=")[2]))
+            continue
+        if token == "description":
+            # Keep the post text as one <id>_<title>.description beside the
+            # files (gallery-dl's info.json is the source and is removed again),
+            # instead of a .json sidecar per file.
+            rule.description = True
             continue
         if token == "native":
             rule.native = True

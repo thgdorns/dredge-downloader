@@ -470,10 +470,12 @@ def test_a_ppixiv_page_in_the_fragment_becomes_a_range(tmp_path, monkeypatch):
     """#ppixiv?page=5 means the fifth picture, and --range is 1-based too."""
     from dredge.worker import page_from_fragment
 
-    assert page_from_fragment("https://www.pixiv.net/artworks/1#ppixiv?page=5") == 5
-    assert page_from_fragment("https://www.pixiv.net/artworks/1#ppixiv?page=0") == 0
+    assert page_from_fragment("https://www.pixiv.net/artworks/1#ppixiv?page=5") == "5"
+    assert page_from_fragment("https://www.pixiv.net/artworks/1#ppixiv?page=0") == "0"
     assert page_from_fragment("https://www.pixiv.net/artworks/1#ppixiv") is None
     assert page_from_fragment("https://www.pixiv.net/artworks/1") is None
+    # e-hentai pages are the -12 suffix; one gallery line can name several.
+    assert page_from_fragment("https://e-hentai.org/g/1/abcdef1234/#?page=12,34-36") == "12,34-36"
 
     rule = parse_rule('pixiv.net engine=gdl')
     paths = Paths(tmp_path)
@@ -621,6 +623,71 @@ def test_a_pending_import_is_parked_with_its_text(tmp_path, monkeypatch):
     description = root / "dest" / "creator" / "1" / "1_A pending post.description"
     assert description.exists()
     assert "coming soon" in description.read_text(encoding="utf-8")
+
+
+def test_a_description_rule_writes_one_description_and_no_json(tmp_path, monkeypatch):
+    """`description` on the rule: one <id>_<title>.description, no info.json.
+
+    gallery-dl is asked for --write-info-json (one file per post) instead of the
+    per-file metadata postprocessor; Dredge turns that into the plain-text
+    sidecar and removes the json again, so the post folder keeps exactly one
+    description.
+    """
+    rule = parse_rule("example.com engine=gdl description")
+    behaviour = {"gdl": {
+        "rc": 0,
+        "files": ["a.jpg"],
+        "info": {
+            "id": "1",
+            "title": "A post",
+            "content": "<p>hello &amp; welcome</p>",
+            "published": "2026-01-01T00:00:00",
+        },
+        "info_dir": "creator/1",
+    }}
+
+    verdict, root = run(
+        tmp_path, monkeypatch, behaviour, rule=rule,
+        url="https://example.com/post/1",
+    )
+
+    assert verdict == "OK|gallery-dl"
+    folder = root / "dest" / "creator" / "1"
+    description = folder / "1_A post.description"
+    assert description.exists()
+    assert "hello & welcome" in description.read_text(encoding="utf-8")
+    assert not (folder / "info.json").exists()
+    assert not list(folder.glob("*.json"))
+
+
+def test_a_description_rule_does_not_ask_for_info_json_on_a_creator_page(
+    tmp_path, monkeypatch
+):
+    """A creator page would leave one info.json per post behind."""
+    rule = parse_rule(
+        "example.com engine=gdl description playlist=user postid=^(\\d+)_ "
+        "posturl=https://{host}/{service}/user/{user}/post/{id}"
+    )
+    calls: list[list[str]] = []
+
+    def fake(args, *, cwd=None, sink=None, timeout=None, stop_on=None, stall=None):
+        calls.append(list(args))
+        return 0, ""
+
+    monkeypatch.setattr(worker_module, "run", fake)
+    paths = Paths(tmp_path)
+    settings = Settings.load(paths, dest_default=tmp_path / "dest", dry_run=False)
+    worker = Worker(paths, settings, Engines(gdl="gallery-dl"), knowledge(rule))
+    worker.download(
+        "https://example.com/patreon/user/12345",
+        dest=tmp_path / "dest",
+        lane_log=tmp_path / "lane1.log",
+        result=tmp_path / "lane1.result",
+        archive=tmp_path / "lane1.archive",
+    )
+
+    assert calls
+    assert all("--write-info-json" not in call for call in calls)
 
 
 def test_a_private_video_is_parked_not_failed(tmp_path, monkeypatch):

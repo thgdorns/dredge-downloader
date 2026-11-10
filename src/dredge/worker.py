@@ -32,7 +32,7 @@ from .destinations import destination_for, filehost_folder
 from .engines import Engines, dir_signature, probe_down, produced, run
 from .mega import folder_name as mega_folder_name
 from .sites import SiteRule
-from .urls import Knowledge, Playlist, host, resolve_short_url
+from .urls import Knowledge, Playlist, quota_host, resolve_short_url
 
 _PATH_CHARS = r'[^\r\n"<>|]+'
 _SKIP_LINE = re.compile(r"(?m)^#\s+(.+?)\s*$")
@@ -58,6 +58,13 @@ _QUOTA_STOP = (
     r"(?i)(?:server returned 509|over ?quota|transfer quota|quota exceeded"
     r"|EBLOCKED)"
 )
+
+# e-hentai/exhentai answer "you do not have enough GP" when the account cannot
+# pay for the original images. gallery-dl says so as "Not enough GP" (gp =
+# "stop") and, without that setting, quietly continues with the resized copies
+# ("Falling back to non-original downloads"). The GP balance belongs to the
+# account, so one answer condemns every gallery link, on either domain.
+_GP_STOP = re.compile(r"(?i)not enough GP|falling back to non-original")
 
 # A Drive folder's own name, for the output folder instead of its id. The
 # public folder page carries the name in its <title> ("加长HMV - Google Drive");
@@ -108,17 +115,48 @@ def drive_file_gone(url: str, timeout: float = 15.0) -> bool:
         return False
 
 
-def page_from_fragment(url: str) -> int | None:
-    """The page the ppixiv userscript records in the URL fragment.
+# e-hentai answers a burst with a plain-text notice instead of the gallery, and
+# gallery-dl can only report "Failed to extract gallery token" - the notice
+# itself never reaches its output. The ban is per IP and expires by itself, so
+# the pass parks the host exactly like an exhausted quota.
+_BAN_NOTICE = re.compile(
+    r"(?i)temporarily banned|excessive request rate|excessive pageloads"
+)
 
-    ``…#ppixiv?page=5`` means the fifth picture, so the number is used as-is for
-    gallery-dl's 1-based ``--range``. Nothing else in the URL uses the fragment.
+
+def site_banned(url: str, timeout: float = 15.0) -> bool:
+    """True when the host answers this URL with its rate-limit notice."""
+    # exhentai.org refuses an anonymous request outright (302 loop, no cookies),
+    # but the ban is per IP and e-hentai.org serves the same notice to anyone, so
+    # either domain is probed through e-hentai.org's front page.
+    probe = "https://e-hentai.org/" if quota_host(url) == "exhentai.org" else url
+    request = urllib.request.Request(probe, headers={
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    })
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            page = response.read(4096).decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001 - a probe must never break the download
+        return False
+    return bool(_BAN_NOTICE.search(page))
+
+
+def page_from_fragment(url: str) -> str | None:
+    """The page or page list the URL fragment selects.
+
+    ``…#ppixiv?page=5`` is what the ppixiv userscript records for pixiv: the
+    fifth picture. The fragment is the only part of a URL that nothing else
+    uses, so the same slot carries e-hentai's page too — ``#?page=12,34-36``
+    selects those gallery pages, which are the ``-12`` suffix of the image page
+    URL. The value goes to gallery-dl's 1-based ``--range`` as-is: it accepts a
+    list, so one line per gallery can fetch just the queued pages instead of
+    parsing the gallery once per page.
     """
     fragment = url.partition("#")[2]
     if not fragment:
         return None
-    match = re.search(r"[?&]page=(\d+)", fragment)
-    return int(match.group(1)) if match else None
+    match = re.search(r"[?&]page=([0-9][0-9,-]*)", fragment)
+    return match.group(1) if match else None
 
 
 @dataclass(frozen=True)
@@ -467,6 +505,10 @@ class Worker:
                 return self._finish("PREVIEW|gallery-dl", result)
             if gallery.pending:
                 return self._finish("PENDING|gallery-dl", result)
+            if self._quota_host:
+                # Out of GP: the answer is about the account, not this link, so
+                # the pass parks the host instead of failing every gallery.
+                return self._finish(f"QUOTA|{self._quota_host}", result)
 
         # --- tier 1f: file-host engines ---------------------------------
         if not engine and not dry and pin_filehost:
@@ -684,11 +726,12 @@ class Worker:
         if page is None and dl_rule and dl_rule.page.isdigit():
             # The rule decides what a link without a page means (pixiv: page 1,
             # the first picture, instead of the whole post).
-            page = int(dl_rule.page)
+            page = dl_rule.page
         if page is not None:
-            page = max(1, page)
+            if page.isdigit():
+                page = str(max(1, int(page)))
             self._lane(f"[gallery-dl] page {page} only")
-            args = ["--range", str(page), *args]
+            args = ["--range", page, *args]
         if playlist and archive:
             result.pages_manifest = Path(str(archive) + ".pages")
             try:
@@ -701,6 +744,15 @@ class Worker:
         if ignore:
             self._auto_rename(args, files_manifest)
         out = self.text
+        if _GP_STOP.search(out):
+            # gallery-dl.conf sets gp = "stop", so the run ends here instead of
+            # saving the 1280px copies. The pass parks the whole host: a retry
+            # cannot conjure GP, and every other gallery link would say the same.
+            self._quota_host = quota_host(dl)
+            self._lane(
+                "[gallery-dl] the account is out of GP for originals - every "
+                "gallery link waits for the balance to refill"
+            )
         if dl_rule and dl_rule.oauth and re.search(
             r"(?i)AuthenticationError|refresh.?token'?.? required", out
         ):
@@ -723,6 +775,17 @@ class Worker:
             playlist and n_file_err and not page_err and n_404 >= n_file_err and not throttled
         )
         gdl_err = (file_err or page_err) and not unsupported and not dead_only
+        if page_err and not self._quota_host and site_banned(dl):
+            # gallery-dl only says "Failed to extract gallery token" when the
+            # site answers its rate-limit notice instead of the page, so one probe
+            # tells a ban from a dead gallery. While the ban lasts every link on
+            # the host gets the same notice: parking the host is what stops the
+            # rest of the queue from failing one by one.
+            self._quota_host = quota_host(dl)
+            self._lane(
+                "[gallery-dl] the site is rate-limiting this IP - every gallery "
+                "link waits for the ban to lift"
+            )
         result.page_ids = self._page_ids(result.pages_manifest) if playlist else []
         exit_ok = rc == 0 or dead_only
         existing = file_records(out, final_dest, files_manifest, include_skipped=True)
@@ -741,6 +804,8 @@ class Worker:
                     "[gallery-dl] archived as downloaded - recording the post, "
                     "not fetching it again"
                 )
+            if dl_rule and dl_rule.description and not playlist:
+                self._write_description(final_dest, dl)
         if not result.engine and playlist and not unsupported:
             result.handled = True
         if dl_rule and dl_rule.engine == "gdl":
@@ -784,10 +849,10 @@ class Worker:
         )
 
     def _save_description(self, dest: Path, url: str, args: list[str]) -> None:
-        """Save the post text where gallery-dl would have put the media.
+        """Fetch the post metadata for a parked post, then save its text.
 
         ``--write-info-json`` writes the post metadata even when every file is
-        skipped, into the same folder the files would have gone to. The
+        skipped, into the same folder the files would have gone to; the
         ``.description`` beside it is the same plain-text sidecar yt-dlp writes
         for a video, so a preview-only post still leaves a record of what it is.
         """
@@ -799,17 +864,27 @@ class Worker:
         )
         # No exit-code check: a pending import fails the same 404s again but
         # still writes info.json, which is the only thing wanted here.
+        self._write_description(dest, url)
+
+    def _write_description(self, dest: Path, url: str) -> bool:
+        """Turn the info.json gallery-dl wrote into <id>_<title>.description."""
         info = self._find_info(dest, _post_id(url))
         if info is None:
             self._lane("[gallery-dl] no info.json was written - no post text to keep")
-            return
+            return False
         try:
             data = json.loads(info.read_text(encoding="utf-8", errors="replace"))
             stem = _safe_name(f"{data.get('id') or info.parent.name}_{data.get('title') or ''}")
             target = info.parent / f"{stem or 'post'}.description"
             target.write_text(_description_text(data, url), encoding="utf-8")
         except (OSError, ValueError):
-            return
+            return False
+        try:
+            # The description is the record; info.json was only its source.
+            info.unlink()
+        except OSError:
+            pass
+        return True
 
     @staticmethod
     def _find_info(dest: Path, post_id: str) -> Path | None:
@@ -858,6 +933,11 @@ class Worker:
         if rule and rule.gdl:
             for option in rule.gdl:
                 args += ["-o", option]
+        if rule and rule.description and not playlist:
+            # One info.json for the whole post, which _write_description turns
+            # into <id>_<title>.description and deletes. Only for post URLs: a
+            # creator page would leave one info.json per post behind.
+            args.append("--write-info-json")
         if rule and rule.author == "yt-dlp":
             author = self._ytdlp_author(dl)
             if author:
@@ -1055,7 +1135,7 @@ class Worker:
             if re.search(_QUOTA_STOP, out):
                 # The quota is per IP, so this answer applies to every link on
                 # the host, not just this one: the pass parks the rest.
-                self._quota_host = host(dl)
+                self._quota_host = quota_host(dl)
             if name == "megadl" and re.search(r"(?i)server returned error ENOENT", out):
                 # ENOENT from MEGA's 'g' call means the node is not there at
                 # all: deleted, or the link is wrong. No retry can fix it.
@@ -1162,15 +1242,15 @@ class Worker:
                 page = playlist.rule.posturl
                 page = page.replace("{host}", playlist.host).replace("{service}", playlist.service)
                 page = page.replace("{user}", playlist.user).replace("{id}", post_id)
-                lines.append(format_row(_row(self.knowledge.canon(page), hit)))
+                lines.append(format_row(_row(self.knowledge.canon(page), hit, dest)))
         elif records:
-            lines.append(format_row(_row(self.knowledge.canon(url), records)))
+            lines.append(format_row(_row(self.knowledge.canon(url), records, dest)))
         elif engine == "gallery-dl" and not playlist and _SKIP_LINE.search(self.text):
             # gallery-dl's archive says this URL was downloaded; the files may
             # be on the other drive after a destination fallback. Record the
             # URL without files so it is deduplicated from the queue, exactly
             # as the archive considers it a duplicate.
-            lines.append(format_row(_row(self.knowledge.canon(url), [])))
+            lines.append(format_row(_row(self.knowledge.canon(url), [], dest)))
         if lines:
             try:
                 Path(archive).write_text(
@@ -1197,14 +1277,30 @@ class Worker:
         return [r for r in records if id(r) not in doomed]
 
 
-def _row(url: str, records: list[FileRecord]):
+def _author_of(path: Path, dest: Path) -> str:
+    """The creator folder a file sits in, relative to the destination root."""
+    try:
+        parts = path.relative_to(dest).parts
+    except ValueError:
+        return ""
+    return parts[0] if len(parts) > 1 else ""
+
+
+def _row(url: str, records: list[FileRecord], dest: Path | None = None):
     from .archive import Row
 
+    author = ""
+    if dest is not None:
+        for record in records:
+            author = _author_of(record.path, dest)
+            if author:
+                break
     return Row(
         timestamp=_now(),
         url=url,
         names=tuple(r.name for r in records),
         sizes=tuple(r.size for r in records),
+        author=author,
     )
 
 

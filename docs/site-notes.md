@@ -37,6 +37,13 @@ engines see it).
   do better until the mirror re-imports the post, so the worker answers
   `PREVIEW|gallery-dl` and the pass parks the link in `skip.txt` - not
   `fail.txt`, which is for errors worth retrying.
+- **One `.description` per post, not a `.json` per file.** The kemono sections of
+  `gallery-dl.conf` still carry the `metadata` postprocessor, but both rules turn
+  it off on the command line (`gdl=extractor.<site>.postprocessors=null`) and ask
+  for `--write-info-json` instead: gallery-dl then writes a single `info.json` for
+  the post, which Dredge converts into `<id>_<title>.description` and deletes.
+  The `description` token on the rule is what enables it (and it is skipped for
+  creator pages, which would leave one info.json per post behind).
 - `preview_description = on` in `dredge.conf` (off by default: a preference)
   saves the post text as `<id>_<title>.description` for **both** parked kinds,
   read from the `info.json` gallery-dl writes in the folder the media would have
